@@ -34,7 +34,7 @@ public class OperationMulti extends BaseEntity {
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private MembreGroupe membre;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "groupe_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Groupe groupe;
