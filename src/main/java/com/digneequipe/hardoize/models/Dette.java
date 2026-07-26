@@ -17,7 +17,7 @@ public class Dette extends BaseEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "vente_id", nullable = false)
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Vente vente;
