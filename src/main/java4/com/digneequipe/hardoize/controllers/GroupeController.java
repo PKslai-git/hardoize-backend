@@ -60,17 +60,6 @@ public class GroupeController {
         ));
     }
 
-    // GET /api/groupes/rejoints
-    // Groupes où l'utilisateur connecté est membre (scan QR / lien
-    // WhatsApp) — distinct de ses propres PDV renvoyés par GET /api/groupes.
-    @GetMapping("/rejoints")
-    public ResponseEntity<ApiResponse<List<Map<String,Object>>>> getRejoints(
-            Authentication auth) {
-        return ResponseEntity.ok(ApiResponse.ok(
-                groupeService.getGroupesMembre(auth.getName())
-        ));
-    }
-
     // GET /api/groupes/{uuid}/membres
     @GetMapping("/{uuid}/membres")
     public ResponseEntity<ApiResponse<List<Map<String,Object>>>> getMembres(

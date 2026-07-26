@@ -144,12 +144,11 @@ public class MultiModeController {
     @PutMapping("/permissions/membre/{membreUuid}")
     public ResponseEntity<ApiResponse<Map<String,Object>>> permissions(
             @PathVariable String membreUuid,
-            @RequestBody Map<String,Boolean> body,
-            Authentication auth) {
+            @RequestBody Map<String,Boolean> body) {
         try {
             return ResponseEntity.ok(ApiResponse.ok(
                     "Permissions mises à jour",
-                    multiService.modifierPermissions(membreUuid, body, auth.getName())
+                    multiService.modifierPermissions(membreUuid, body)
             ));
         } catch (Exception e) {
             return ResponseEntity.badRequest()

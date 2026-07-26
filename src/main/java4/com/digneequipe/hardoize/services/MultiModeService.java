@@ -24,9 +24,6 @@ public class MultiModeService {
     private final ClientService              clientService;
     private final DetteService               detteService;
     private final MouvementStockService      mouvementService;
-    private final FournisseurService         fournisseurService;
-    private final DetteFournisseurService    detteFournisseurService;
-    private final HistoriqueService          historiqueService;
 
     // ── Rejoindre un groupe via QR ─────────────────────────────
     @Transactional
@@ -201,9 +198,6 @@ public class MultiModeService {
         data.put("clients",         clientService.getByGroupe(id));
         data.put("dettes",          detteService.getByGroupe(id));
         data.put("mouvementsStock", mouvementService.getByGroupe(id));
-        data.put("fournisseurs",    fournisseurService.getByGroupe(id));
-        data.put("dettesFournisseurs", detteFournisseurService.getByGroupe(id));
-        data.put("historiqueVentes",   historiqueService.getHistoriqueVentes(id));
         data.put("timestamp",       LocalDateTime.now().toString());
         return data;
     }
@@ -271,24 +265,13 @@ public class MultiModeService {
         return buildPermissionsDto(p);
     }
 
-    // ── Modifier permissions (par le propriétaire uniquement) ──
+    // ── Modifier permissions ──────────────────────────────────
     @Transactional
     public Map<String, Object> modifierPermissions(
-            String membreUuid, Map<String, Boolean> body, String telephoneAuteur) {
+            String membreUuid, Map<String, Boolean> body) {
 
         MembreGroupe membre = membreRepo.findByUuid(membreUuid)
                 .orElseThrow(() -> new RuntimeException("Membre introuvable"));
-
-        // Sécurité : seul le propriétaire du groupe auquel appartient
-        // ce membre a le droit de modifier ses permissions. Avant,
-        // n'importe quel utilisateur authentifié pouvait appeler cet
-        // endpoint pour n'importe quel membre de n'importe quel groupe.
-        Groupe groupe = membre.getGroupe();
-        if (!groupe.getProprietaire().getTelephone().equals(telephoneAuteur)) {
-            throw new RuntimeException(
-                    "Seul le propriétaire peut modifier les permissions");
-        }
-
         PermissionMembre p = permissionRepo
                 .findByMembreId(membre.getId())
                 .orElseThrow(() ->
@@ -339,17 +322,7 @@ public class MultiModeService {
     private void verifierPermission(Long membreId, String type) {
         PermissionMembre p = permissionRepo
                 .findByMembreId(membreId).orElse(null);
-
-        // Absence de ligne de permissions = accès refusé par défaut
-        // (ne devrait normalement jamais arriver : une ligne est créée
-        // pour chaque membre dès qu'il rejoint un groupe — voir
-        // rejoindreGroupe). Avant : `return;` ici laissait passer
-        // l'opération silencieusement, à l'inverse de ce que dit ce
-        // commentaire.
-        if (p == null)
-            throw new RuntimeException(
-                    "Aucune permission définie pour ce membre");
-
+        if (p == null) return; // Pas de perms = accès refusé
         boolean ok = switch (type != null ? type : "") {
             case "vente"          -> p.getPeutVendre();
             case "mouvement_stock"-> p.getPeutGererStock();

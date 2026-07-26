@@ -17,6 +17,4 @@ public interface MembreGroupeRepository extends JpaRepository<MembreGroupe, Long
 
         Optional<MembreGroupe> findByGroupeIdAndTelephone(
                 Long groupeId, String telephone);
-
-        List<MembreGroupe> findByTelephone(String telephone);
  }

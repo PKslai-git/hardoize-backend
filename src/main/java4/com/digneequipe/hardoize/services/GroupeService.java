@@ -105,30 +105,6 @@ public class GroupeService {
         return result;
     }
 
-    // Groupes qu'un utilisateur a REJOINTS en tant que membre (scan
-    // QR / lien WhatsApp) — distinct des groupes dont il est
-    // propriétaire (voir getByProprietaire ci-dessus). Utilisé par
-    // GroupesScreen pour afficher, en plus de son propre PDV, tous
-    // les groupes multi-vendeurs auxquels ce téléphone appartient.
-    @Transactional
-    public List<Map<String, Object>> getGroupesMembre(String telephone) {
-        List<MembreGroupe> adhesions = membreRepo.findByTelephone(telephone);
-
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (MembreGroupe m : adhesions) {
-            Groupe g = m.getGroupe();
-            if (g == null || g.getProprietaire().getTelephone().equals(telephone))
-                continue; // déjà couvert par getByProprietaire
-
-            Map<String, Object> dto = buildDto(g);
-            dto.put("role",       m.getRole());
-            dto.put("membreUuid", m.getUuid());
-            dto.put("bailHeure",  m.getBailHeure());
-            result.add(dto);
-        }
-        return result;
-    }
-
     public List<Map<String, Object>> getMembres(Long groupeId) {
         List<MembreGroupe> membres =
                 membreRepo.findByGroupeId(groupeId);
