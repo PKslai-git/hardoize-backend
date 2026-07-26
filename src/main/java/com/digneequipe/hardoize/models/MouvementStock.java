@@ -33,7 +33,7 @@ public class MouvementStock extends BaseEntity {
     private String NomUnite;
     private Integer QteUnite;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "fournisseur_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Fournisseur fournisseur;
