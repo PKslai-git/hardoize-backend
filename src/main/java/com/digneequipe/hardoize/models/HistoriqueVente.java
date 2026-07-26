@@ -15,7 +15,7 @@ public class HistoriqueVente extends BaseEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "groupe_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Groupe groupe;
