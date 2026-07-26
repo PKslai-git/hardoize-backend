@@ -27,17 +27,17 @@ public class HistoriquePaiement extends BaseEntity {
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Client client;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "fournisseur_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Fournisseur fournisseur;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "dette_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Dette dette;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "vente_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Vente vente;

@@ -29,7 +29,7 @@ public class OperationMulti extends BaseEntity {
 
     private String messageErreur;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "membre_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private MembreGroupe membre;
