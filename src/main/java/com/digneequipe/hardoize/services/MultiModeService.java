@@ -278,6 +278,51 @@ public class MultiModeService {
         });
     }
 
+    // ── Connexion permanente (activer/désactiver, propriétaire) ──
+    // Un membre en connexion permanente n'est jamais déconnecté
+    // automatiquement à l'échéance du bail (voir planifierBail côté
+    // client, qui vérifie ce champ avant de programmer la déconnexion).
+    @Transactional
+    public void definirConnexionPermanente(
+            String membreUuid, boolean actif, String telephoneAuteur) {
+        MembreGroupe membre = membreRepo.findByUuid(membreUuid)
+                .orElseThrow(() -> new RuntimeException("Membre introuvable"));
+        verifierEstProprietaire(membre, telephoneAuteur);
+        membre.setConnexionPermanente(actif);
+        membreRepo.save(membre);
+    }
+
+    // ── Prolonger (ou modifier) l'heure de bail d'un membre ────
+    @Transactional
+    public void prolongerBail(
+            String membreUuid, String nouvelleHeure, String telephoneAuteur) {
+        if (nouvelleHeure == null || !nouvelleHeure.matches("\\d{2}:\\d{2}"))
+            throw new RuntimeException("Heure invalide (format attendu HH:mm)");
+        MembreGroupe membre = membreRepo.findByUuid(membreUuid)
+                .orElseThrow(() -> new RuntimeException("Membre introuvable"));
+        verifierEstProprietaire(membre, telephoneAuteur);
+        membre.setBailHeure(nouvelleHeure);
+        membreRepo.save(membre);
+    }
+
+    // ── Déconnexion forcée par le propriétaire ─────────────────
+    @Transactional
+    public void deconnecterMembreParProprietaire(
+            String membreUuid, String telephoneAuteur) {
+        MembreGroupe membre = membreRepo.findByUuid(membreUuid)
+                .orElseThrow(() -> new RuntimeException("Membre introuvable"));
+        verifierEstProprietaire(membre, telephoneAuteur);
+        deconnecterMembre(membreUuid);
+    }
+
+    private void verifierEstProprietaire(MembreGroupe membre, String telephoneAuteur) {
+        if (!membre.getGroupe().getProprietaire()
+                .getTelephone().equals(telephoneAuteur)) {
+            throw new RuntimeException(
+                    "Seul le propriétaire peut effectuer cette action");
+        }
+    }
+
     // ── Lire les permissions d'un membre ──────────────────────
     @Transactional(readOnly = true)
     public Map<String, Object> getPermissions(String membreUuid) {
@@ -304,7 +349,10 @@ public class MultiModeService {
                             .build();
                     return permissionRepo.save(def);
                 });
-        return buildPermissionsDto(p);
+        Map<String, Object> dto = buildPermissionsDto(p);
+        dto.put("connexionPermanente", membre.getConnexionPermanente());
+        dto.put("bailHeure", membre.getBailHeure());
+        return dto;
     }
 
     // ── Modifier permissions (par le propriétaire uniquement) ──
