@@ -118,6 +118,15 @@ public class MultiModeController {
         }
     }
 
+    // POST /api/multi/connecter/{membreUuid}
+    // Signal de présence — appelé à chaque poll 30s côté client.
+    @PostMapping("/connecter/{membreUuid}")
+    public ResponseEntity<ApiResponse<String>> connecter(
+            @PathVariable String membreUuid) {
+        multiService.marquerConnecte(membreUuid);
+        return ResponseEntity.ok(ApiResponse.ok("ok"));
+    }
+
     // POST /api/multi/deconnecter/{membreUuid}
     @PostMapping("/deconnecter/{membreUuid}")
     public ResponseEntity<ApiResponse<Void>> deconnecter(

@@ -24,7 +24,7 @@ public class Client extends BaseEntity {
     @Builder.Default private Integer score   = 100;
     @Builder.Default private Boolean estActif = true;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "groupe_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Groupe groupe;

@@ -187,6 +187,7 @@ public class MultiModeService {
     // d'un nouveau téléphone qui rejoint un groupe : renvoie un instantané
     // complet des données du groupe, identifié uniquement par uuid (jamais
     // par id numérique, propre à chaque base locale).
+    @Transactional(readOnly = true)
     public Map<String, Object> getDonneesCompletes(String groupeUuid) {
         Groupe groupe = groupeRepo.findByUuid(groupeUuid)
                 .orElseThrow(() -> new RuntimeException("Groupe introuvable"));
@@ -238,6 +239,23 @@ public class MultiModeService {
         return dto;
     }
 
+    // ── Signal de présence (heartbeat) ────────────────────────
+    // Marque le membre comme connecté. Contrairement à l'ancien
+    // fonctionnement, où estConnecte n'était mis à jour qu'à la
+    // jointure initiale (donc figé "vrai" pour toujours ensuite,
+    // même après fermeture de l'app), cette méthode est appelée à
+    // chaque poll 30s tant que l'app est active — estConnecte
+    // reflète donc une activité réelle et récente.
+    @Transactional
+    public void marquerConnecte(String membreUuid) {
+        membreRepo.findByUuid(membreUuid).ifPresent(m -> {
+            if (!Boolean.TRUE.equals(m.getEstConnecte())) {
+                m.setEstConnecte(true);
+                membreRepo.save(m);
+            }
+        });
+    }
+
     // ── Déconnecter un membre ─────────────────────────────────
     @Transactional
     public void deconnecterMembre(String membreUuid) {
@@ -261,13 +279,31 @@ public class MultiModeService {
     }
 
     // ── Lire les permissions d'un membre ──────────────────────
+    @Transactional(readOnly = true)
     public Map<String, Object> getPermissions(String membreUuid) {
         MembreGroupe membre = membreRepo.findByUuid(membreUuid)
                 .orElseThrow(() -> new RuntimeException("Membre introuvable"));
+
+        // Auto-réparation : un membre créé manuellement en base (ou
+        // par un ancien flux avant que rejoindreGroupe() ne crée
+        // systématiquement une ligne de permissions) peut ne pas en
+        // avoir. Avant, ce cas levait "Permissions introuvables" et
+        // bloquait tout — on crée maintenant des permissions par
+        // défaut à la volée plutôt que d'échouer.
         PermissionMembre p = permissionRepo
                 .findByMembreId(membre.getId())
-                .orElseThrow(() ->
-                        new RuntimeException("Permissions introuvables"));
+                .orElseGet(() -> {
+                    PermissionMembre def = PermissionMembre.builder()
+                            .membre(membre)
+                            .peutVendre(true)
+                            .peutVoirDettes(false)
+                            .peutGererStock(false)
+                            .peutVoirStats(false)
+                            .peutGererClients(false)
+                            .peutVoirHistorique(false)
+                            .build();
+                    return permissionRepo.save(def);
+                });
         return buildPermissionsDto(p);
     }
 
@@ -291,8 +327,15 @@ public class MultiModeService {
 
         PermissionMembre p = permissionRepo
                 .findByMembreId(membre.getId())
-                .orElseThrow(() ->
-                        new RuntimeException("Permissions introuvables"));
+                .orElseGet(() -> PermissionMembre.builder()
+                        .membre(membre)
+                        .peutVendre(true)
+                        .peutVoirDettes(false)
+                        .peutGererStock(false)
+                        .peutVoirStats(false)
+                        .peutGererClients(false)
+                        .peutVoirHistorique(false)
+                        .build());
 
         if (body.containsKey("peutVendre"))
             p.setPeutVendre(body.get("peutVendre"));

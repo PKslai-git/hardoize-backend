@@ -20,7 +20,7 @@ public class LigneVente extends BaseEntity {
     @JsonIgnoreProperties({"lignes","hibernateLazyInitializer","handler"})
     private Vente vente;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "produit_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Produit produit;

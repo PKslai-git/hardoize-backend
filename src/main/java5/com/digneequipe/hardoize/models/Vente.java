@@ -29,7 +29,7 @@ public class Vente extends BaseEntity {
     @Builder.Default private Double beneficeNet  = 0.0;
     @Builder.Default private String typePaiement = "especes";
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "client_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Client client;
@@ -39,7 +39,7 @@ public class Vente extends BaseEntity {
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Utilisateur utilisateur;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "groupe_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Groupe groupe;
