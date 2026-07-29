@@ -42,15 +42,10 @@ public class MultiModeService {
                 .orElseThrow(() ->
                         new RuntimeException("Utilisateur introuvable"));
 
-        // Vérifier si déjà membre — et s'il était déjà connecté avant
-        // ce scan (pour donner un message adapté côté client : "déjà
-        // connecté" plutôt que de refaire toute la reconnexion en
-        // silence, ou l'inverse).
-        final boolean[] etaitDejaConnecte = { false };
+        // Vérifier si déjà membre
         MembreGroupe membre = membreRepo
                 .findByGroupeIdAndTelephone(groupe.getId(), telephone)
                 .map(m -> {
-                    etaitDejaConnecte[0] = Boolean.TRUE.equals(m.getEstConnecte());
                     m.setEstConnecte(true);
                     if (nomAffiche != null) m.setNomAffiche(nomAffiche);
                     return membreRepo.save(m);
@@ -105,7 +100,6 @@ public class MultiModeService {
         result.put("mode",        groupe.getMode());
         result.put("bailHeure",   membre.getBailHeure());
         result.put("permissions", buildPermissionsDto(perms));
-        result.put("dejaConnecte", etaitDejaConnecte[0]);
         return result;
     }
 
@@ -227,7 +221,7 @@ public class MultiModeService {
                 .orElseThrow(() -> new RuntimeException("Membre introuvable"));
 
         Groupe groupe = membre.getGroupe();
-        if (!telephonesEquivalents(groupe.getProprietaire().getTelephone(), telephoneAuteur)) {
+        if (!groupe.getProprietaire().getTelephone().equals(telephoneAuteur)) {
             throw new RuntimeException(
                     "Seul le propriétaire peut modifier le rôle d'un membre");
         }
@@ -322,30 +316,11 @@ public class MultiModeService {
     }
 
     private void verifierEstProprietaire(MembreGroupe membre, String telephoneAuteur) {
-        if (!telephonesEquivalents(
-                membre.getGroupe().getProprietaire().getTelephone(), telephoneAuteur)) {
+        if (!membre.getGroupe().getProprietaire()
+                .getTelephone().equals(telephoneAuteur)) {
             throw new RuntimeException(
                     "Seul le propriétaire peut effectuer cette action");
         }
-    }
-
-    // Compare deux numéros de téléphone en ignorant les espaces, tirets
-    // et un éventuel préfixe international (+237, 00237...) — un
-    // numéro peut être stocké/renvoyé sous des formats légèrement
-    // différents selon le point d'entrée (inscription, JWT, saisie
-    // manuelle en base), et une simple comparaison stricte pouvait à
-    // tort refuser l'accès au propriétaire lui-même.
-    private boolean telephonesEquivalents(String a, String b) {
-        if (a == null || b == null) return false;
-        String na = a.replaceAll("[^0-9]", "");
-        String nb = b.replaceAll("[^0-9]", "");
-        // Comparer sur les 8 derniers chiffres (numéro local, sans
-        // indicatif pays) suffit à identifier la même ligne.
-        int len = Math.min(na.length(), nb.length());
-        int taille = Math.min(len, 8);
-        if (taille == 0) return na.equals(nb);
-        return na.substring(na.length() - taille)
-                 .equals(nb.substring(nb.length() - taille));
     }
 
     // ── Lire les permissions d'un membre ──────────────────────
@@ -393,7 +368,7 @@ public class MultiModeService {
         // n'importe quel utilisateur authentifié pouvait appeler cet
         // endpoint pour n'importe quel membre de n'importe quel groupe.
         Groupe groupe = membre.getGroupe();
-        if (!telephonesEquivalents(groupe.getProprietaire().getTelephone(), telephoneAuteur)) {
+        if (!groupe.getProprietaire().getTelephone().equals(telephoneAuteur)) {
             throw new RuntimeException(
                     "Seul le propriétaire peut modifier les permissions");
         }
