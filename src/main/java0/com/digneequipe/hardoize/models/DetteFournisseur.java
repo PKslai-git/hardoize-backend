@@ -36,7 +36,7 @@ public class DetteFournisseur extends BaseEntity {
 
     @Builder.Default private String statut = "active";
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "groupe_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Groupe groupe;

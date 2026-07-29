@@ -42,10 +42,15 @@ public class MultiModeService {
                 .orElseThrow(() ->
                         new RuntimeException("Utilisateur introuvable"));
 
-        // Vérifier si déjà membre
+        // Vérifier si déjà membre — et s'il était déjà connecté avant
+        // ce scan (pour donner un message adapté côté client : "déjà
+        // connecté" plutôt que de refaire toute la reconnexion en
+        // silence, ou l'inverse).
+        final boolean[] etaitDejaConnecte = { false };
         MembreGroupe membre = membreRepo
                 .findByGroupeIdAndTelephone(groupe.getId(), telephone)
                 .map(m -> {
+                    etaitDejaConnecte[0] = Boolean.TRUE.equals(m.getEstConnecte());
                     m.setEstConnecte(true);
                     if (nomAffiche != null) m.setNomAffiche(nomAffiche);
                     return membreRepo.save(m);
@@ -100,6 +105,7 @@ public class MultiModeService {
         result.put("mode",        groupe.getMode());
         result.put("bailHeure",   membre.getBailHeure());
         result.put("permissions", buildPermissionsDto(perms));
+        result.put("dejaConnecte", etaitDejaConnecte[0]);
         return result;
     }
 
@@ -187,6 +193,7 @@ public class MultiModeService {
     // d'un nouveau téléphone qui rejoint un groupe : renvoie un instantané
     // complet des données du groupe, identifié uniquement par uuid (jamais
     // par id numérique, propre à chaque base locale).
+    @Transactional(readOnly = true)
     public Map<String, Object> getDonneesCompletes(String groupeUuid) {
         Groupe groupe = groupeRepo.findByUuid(groupeUuid)
                 .orElseThrow(() -> new RuntimeException("Groupe introuvable"));
@@ -220,7 +227,7 @@ public class MultiModeService {
                 .orElseThrow(() -> new RuntimeException("Membre introuvable"));
 
         Groupe groupe = membre.getGroupe();
-        if (!groupe.getProprietaire().getTelephone().equals(telephoneAuteur)) {
+        if (!telephonesEquivalents(groupe.getProprietaire().getTelephone(), telephoneAuteur)) {
             throw new RuntimeException(
                     "Seul le propriétaire peut modifier le rôle d'un membre");
         }
@@ -236,6 +243,23 @@ public class MultiModeService {
         dto.put("uuid", membre.getUuid());
         dto.put("role", membre.getRole());
         return dto;
+    }
+
+    // ── Signal de présence (heartbeat) ────────────────────────
+    // Marque le membre comme connecté. Contrairement à l'ancien
+    // fonctionnement, où estConnecte n'était mis à jour qu'à la
+    // jointure initiale (donc figé "vrai" pour toujours ensuite,
+    // même après fermeture de l'app), cette méthode est appelée à
+    // chaque poll 30s tant que l'app est active — estConnecte
+    // reflète donc une activité réelle et récente.
+    @Transactional
+    public void marquerConnecte(String membreUuid) {
+        membreRepo.findByUuid(membreUuid).ifPresent(m -> {
+            if (!Boolean.TRUE.equals(m.getEstConnecte())) {
+                m.setEstConnecte(true);
+                membreRepo.save(m);
+            }
+        });
     }
 
     // ── Déconnecter un membre ─────────────────────────────────
@@ -260,15 +284,100 @@ public class MultiModeService {
         });
     }
 
+    // ── Connexion permanente (activer/désactiver, propriétaire) ──
+    // Un membre en connexion permanente n'est jamais déconnecté
+    // automatiquement à l'échéance du bail (voir planifierBail côté
+    // client, qui vérifie ce champ avant de programmer la déconnexion).
+    @Transactional
+    public void definirConnexionPermanente(
+            String membreUuid, boolean actif, String telephoneAuteur) {
+        MembreGroupe membre = membreRepo.findByUuid(membreUuid)
+                .orElseThrow(() -> new RuntimeException("Membre introuvable"));
+        verifierEstProprietaire(membre, telephoneAuteur);
+        membre.setConnexionPermanente(actif);
+        membreRepo.save(membre);
+    }
+
+    // ── Prolonger (ou modifier) l'heure de bail d'un membre ────
+    @Transactional
+    public void prolongerBail(
+            String membreUuid, String nouvelleHeure, String telephoneAuteur) {
+        if (nouvelleHeure == null || !nouvelleHeure.matches("\\d{2}:\\d{2}"))
+            throw new RuntimeException("Heure invalide (format attendu HH:mm)");
+        MembreGroupe membre = membreRepo.findByUuid(membreUuid)
+                .orElseThrow(() -> new RuntimeException("Membre introuvable"));
+        verifierEstProprietaire(membre, telephoneAuteur);
+        membre.setBailHeure(nouvelleHeure);
+        membreRepo.save(membre);
+    }
+
+    // ── Déconnexion forcée par le propriétaire ─────────────────
+    @Transactional
+    public void deconnecterMembreParProprietaire(
+            String membreUuid, String telephoneAuteur) {
+        MembreGroupe membre = membreRepo.findByUuid(membreUuid)
+                .orElseThrow(() -> new RuntimeException("Membre introuvable"));
+        verifierEstProprietaire(membre, telephoneAuteur);
+        deconnecterMembre(membreUuid);
+    }
+
+    private void verifierEstProprietaire(MembreGroupe membre, String telephoneAuteur) {
+        if (!telephonesEquivalents(
+                membre.getGroupe().getProprietaire().getTelephone(), telephoneAuteur)) {
+            throw new RuntimeException(
+                    "Seul le propriétaire peut effectuer cette action");
+        }
+    }
+
+    // Compare deux numéros de téléphone en ignorant les espaces, tirets
+    // et un éventuel préfixe international (+237, 00237...) — un
+    // numéro peut être stocké/renvoyé sous des formats légèrement
+    // différents selon le point d'entrée (inscription, JWT, saisie
+    // manuelle en base), et une simple comparaison stricte pouvait à
+    // tort refuser l'accès au propriétaire lui-même.
+    private boolean telephonesEquivalents(String a, String b) {
+        if (a == null || b == null) return false;
+        String na = a.replaceAll("[^0-9]", "");
+        String nb = b.replaceAll("[^0-9]", "");
+        // Comparer sur les 8 derniers chiffres (numéro local, sans
+        // indicatif pays) suffit à identifier la même ligne.
+        int len = Math.min(na.length(), nb.length());
+        int taille = Math.min(len, 8);
+        if (taille == 0) return na.equals(nb);
+        return na.substring(na.length() - taille)
+                 .equals(nb.substring(nb.length() - taille));
+    }
+
     // ── Lire les permissions d'un membre ──────────────────────
+    @Transactional
     public Map<String, Object> getPermissions(String membreUuid) {
         MembreGroupe membre = membreRepo.findByUuid(membreUuid)
                 .orElseThrow(() -> new RuntimeException("Membre introuvable"));
+
+        // Auto-réparation : un membre créé manuellement en base (ou
+        // par un ancien flux avant que rejoindreGroupe() ne crée
+        // systématiquement une ligne de permissions) peut ne pas en
+        // avoir. Avant, ce cas levait "Permissions introuvables" et
+        // bloquait tout — on crée maintenant des permissions par
+        // défaut à la volée plutôt que d'échouer.
         PermissionMembre p = permissionRepo
                 .findByMembreId(membre.getId())
-                .orElseThrow(() ->
-                        new RuntimeException("Permissions introuvables"));
-        return buildPermissionsDto(p);
+                .orElseGet(() -> {
+                    PermissionMembre def = PermissionMembre.builder()
+                            .membre(membre)
+                            .peutVendre(true)
+                            .peutVoirDettes(false)
+                            .peutGererStock(false)
+                            .peutVoirStats(false)
+                            .peutGererClients(false)
+                            .peutVoirHistorique(false)
+                            .build();
+                    return permissionRepo.save(def);
+                });
+        Map<String, Object> dto = buildPermissionsDto(p);
+        dto.put("connexionPermanente", membre.getConnexionPermanente());
+        dto.put("bailHeure", membre.getBailHeure());
+        return dto;
     }
 
     // ── Modifier permissions (par le propriétaire uniquement) ──
@@ -284,15 +393,22 @@ public class MultiModeService {
         // n'importe quel utilisateur authentifié pouvait appeler cet
         // endpoint pour n'importe quel membre de n'importe quel groupe.
         Groupe groupe = membre.getGroupe();
-        if (!groupe.getProprietaire().getTelephone().equals(telephoneAuteur)) {
+        if (!telephonesEquivalents(groupe.getProprietaire().getTelephone(), telephoneAuteur)) {
             throw new RuntimeException(
                     "Seul le propriétaire peut modifier les permissions");
         }
 
         PermissionMembre p = permissionRepo
                 .findByMembreId(membre.getId())
-                .orElseThrow(() ->
-                        new RuntimeException("Permissions introuvables"));
+                .orElseGet(() -> PermissionMembre.builder()
+                        .membre(membre)
+                        .peutVendre(true)
+                        .peutVoirDettes(false)
+                        .peutGererStock(false)
+                        .peutVoirStats(false)
+                        .peutGererClients(false)
+                        .peutVoirHistorique(false)
+                        .build());
 
         if (body.containsKey("peutVendre"))
             p.setPeutVendre(body.get("peutVendre"));

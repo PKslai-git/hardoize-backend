@@ -42,7 +42,7 @@ public class HistoriquePaiement extends BaseEntity {
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Vente vente;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "groupe_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Groupe groupe;

@@ -23,7 +23,7 @@ public class Fournisseur extends BaseEntity {
 
     @Builder.Default private Boolean estActif = true;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "groupe_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Groupe groupe;

@@ -118,59 +118,6 @@ public class MultiModeController {
         }
     }
 
-    // PUT /api/multi/membre/{membreUuid}/connexion-permanente
-    @PutMapping("/membre/{membreUuid}/connexion-permanente")
-    public ResponseEntity<ApiResponse<String>> connexionPermanente(
-            @PathVariable String membreUuid,
-            @RequestBody Map<String, Boolean> body,
-            Authentication auth) {
-        try {
-            multiService.definirConnexionPermanente(
-                    membreUuid, Boolean.TRUE.equals(body.get("actif")), auth.getName());
-            return ResponseEntity.ok(ApiResponse.ok("ok"));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
-        }
-    }
-
-    // PUT /api/multi/membre/{membreUuid}/prolonger-bail
-    @PutMapping("/membre/{membreUuid}/prolonger-bail")
-    public ResponseEntity<ApiResponse<String>> prolongerBail(
-            @PathVariable String membreUuid,
-            @RequestBody Map<String, String> body,
-            Authentication auth) {
-        try {
-            multiService.prolongerBail(membreUuid, body.get("nouvelleHeure"), auth.getName());
-            return ResponseEntity.ok(ApiResponse.ok("ok"));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
-        }
-    }
-
-    // POST /api/multi/membre/{membreUuid}/deconnecter-force
-    // Déconnexion forcée PAR LE PROPRIÉTAIRE — distincte de
-    // /deconnecter/{membreUuid} (auto-déconnexion du membre lui-même
-    // à l'échéance du bail, sans vérification d'autorisation requise).
-    @PostMapping("/membre/{membreUuid}/deconnecter-force")
-    public ResponseEntity<ApiResponse<String>> deconnecterForce(
-            @PathVariable String membreUuid, Authentication auth) {
-        try {
-            multiService.deconnecterMembreParProprietaire(membreUuid, auth.getName());
-            return ResponseEntity.ok(ApiResponse.ok("ok"));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
-        }
-    }
-
-    // POST /api/multi/connecter/{membreUuid}
-    // Signal de présence — appelé à chaque poll 30s côté client.
-    @PostMapping("/connecter/{membreUuid}")
-    public ResponseEntity<ApiResponse<String>> connecter(
-            @PathVariable String membreUuid) {
-        multiService.marquerConnecte(membreUuid);
-        return ResponseEntity.ok(ApiResponse.ok("ok"));
-    }
-
     // POST /api/multi/deconnecter/{membreUuid}
     @PostMapping("/deconnecter/{membreUuid}")
     public ResponseEntity<ApiResponse<Void>> deconnecter(

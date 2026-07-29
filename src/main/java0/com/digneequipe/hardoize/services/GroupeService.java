@@ -117,7 +117,7 @@ public class GroupeService {
         List<Map<String, Object>> result = new ArrayList<>();
         for (MembreGroupe m : adhesions) {
             Groupe g = m.getGroupe();
-            if (g == null || g.getProprietaire().getTelephone().equals(telephone))
+            if (g == null || telephonesEquivalents(g.getProprietaire().getTelephone(), telephone))
                 continue; // déjà couvert par getByProprietaire
 
             Map<String, Object> dto = buildDto(g);
@@ -257,7 +257,7 @@ public class GroupeService {
 
         // Seul le propriétaire peut retirer un membre
         Groupe groupe = membre.getGroupe();
-        if (!groupe.getProprietaire().getTelephone().equals(telephone)) {
+        if (!telephonesEquivalents(groupe.getProprietaire().getTelephone(), telephone)) {
             throw new RuntimeException("Seul le propriétaire peut retirer un membre");
         }
 
@@ -280,5 +280,19 @@ public class GroupeService {
             groupe.setMode("solo");
             groupeRepo.save(groupe);
         }
+    }
+
+    // Compare deux numéros en ignorant espaces/tirets/indicatif pays —
+    // voir la même méthode dans MultiModeService pour le détail du
+    // raisonnement (un numéro peut être stocké sous des formats
+    // légèrement différents selon le point d'entrée).
+    private boolean telephonesEquivalents(String a, String b) {
+        if (a == null || b == null) return false;
+        String na = a.replaceAll("[^0-9]", "");
+        String nb = b.replaceAll("[^0-9]", "");
+        int taille = Math.min(Math.min(na.length(), nb.length()), 8);
+        if (taille == 0) return na.equals(nb);
+        return na.substring(na.length() - taille)
+                 .equals(nb.substring(nb.length() - taille));
     }
 }

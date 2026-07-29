@@ -22,7 +22,7 @@ public class Dette extends BaseEntity {
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Vente vente;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "client_id", nullable = false)
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Client client;
@@ -43,7 +43,7 @@ public class Dette extends BaseEntity {
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Utilisateur utilisateur;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "groupe_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Groupe groupe;

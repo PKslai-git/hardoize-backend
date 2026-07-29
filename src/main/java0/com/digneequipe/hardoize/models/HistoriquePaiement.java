@@ -6,32 +6,26 @@ import lombok.*;
 import lombok.experimental.SuperBuilder;
 
 @Entity
-@Table(name = "mouvements_stock")
+@Table(name = "historique_paiements")
 @Data @NoArgsConstructor @AllArgsConstructor @SuperBuilder
 @EqualsAndHashCode(callSuper = false)
 @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
-public class MouvementStock extends BaseEntity {
+public class HistoriquePaiement extends BaseEntity {
 
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(nullable = false) private String type;
+    @Column(nullable = false) private String sens;
+    @Column(nullable = false) private Double montant;
+    private String description;
+    private String nomClient;
+    private String nomFournisseur;
+
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "produit_id")
+    @JoinColumn(name = "client_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
-    private Produit produit;
-
-    private String  nomProduit;
-    @Column(nullable = false) private String  type;
-    private String  motif;
-    @Column(nullable = false) private Integer quantite;
-
-    @Builder.Default private Double prixUnitaire = 0.0;
-    @Builder.Default private Double montantTotal  = 0.0;
-    @Builder.Default private Double montantPaye   = 0.0;
-    private String modePaiement;
-
-    private String NomUnite;
-    private Integer QteUnite;
+    private Client client;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "fournisseur_id")
@@ -39,11 +33,16 @@ public class MouvementStock extends BaseEntity {
     private Fournisseur fournisseur;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "utilisateur_id")
+    @JoinColumn(name = "dette_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
-    private Utilisateur utilisateur;
+    private Dette dette;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "vente_id")
+    @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
+    private Vente vente;
+
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "groupe_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Groupe groupe;

@@ -6,31 +6,25 @@ import lombok.*;
 import lombok.experimental.SuperBuilder;
 
 @Entity
-@Table(name = "clients")
+@Table(name = "fournisseurs")
 @Data @NoArgsConstructor @AllArgsConstructor @SuperBuilder
 @EqualsAndHashCode(callSuper = false)
 @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
-public class Client extends BaseEntity {
+public class Fournisseur extends BaseEntity {
 
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
-    private String nomClient;
-    private String numeroClient;
+    @Column(nullable = false) private String nom;
+    private String telephone;
     private String email;
+    private String adresse;
     private String photoUri;
 
-    @Builder.Default private Integer score   = 100;
     @Builder.Default private Boolean estActif = true;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "groupe_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
     private Groupe groupe;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "utilisateur_id")
-    @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
-    private Utilisateur utilisateur;
 }
