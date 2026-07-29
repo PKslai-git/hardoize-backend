@@ -112,7 +112,9 @@ public class ProduitService {
                 uDto.put("prixAchat",    u.getPrixAchat());
                 uDto.put("prixVente",    u.getPrixVente());
                 uDto.put("estBase",      u.getEstBase());
-                uDto.put("estReference", u.getEstReference());
+                // estReference n'est plus exposée : c'est un réglage
+                // d'affichage propre à chaque membre/appareil, jamais
+                // partagé entre eux via le serveur.
                 uDto.put("ordre",        u.getOrdre());
                 unitesDto.add(uDto);
             }

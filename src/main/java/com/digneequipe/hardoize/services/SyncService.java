@@ -529,7 +529,9 @@ public class SyncService {
                 u.setPrixAchat(d(m, "prixAchat") != null ? d(m,"prixAchat") : 0.0);
                 u.setPrixVente(d(m, "prixVente") != null ? d(m,"prixVente") : 0.0);
                 u.setEstBase(b(m, "estBase") != null && b(m,"estBase"));
-                u.setEstReference(b(m,"estReference") != null && b(m,"estReference"));
+                // estReference n'est plus synchronisée entre membres : c'est
+                // un choix d'affichage propre à chaque appareil. On ignore
+                // volontairement toute valeur reçue du client pour ce champ.
                 u.setOrdre(i(m,"ordre") != null ? i(m,"ordre") : 0);
 
                 String pUuid = s(m,"produitUuid");
