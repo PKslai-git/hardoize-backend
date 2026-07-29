@@ -349,7 +349,7 @@ public class MultiModeService {
     }
 
     // ── Lire les permissions d'un membre ──────────────────────
-    @Transactional(readOnly = true)
+    @Transactional
     public Map<String, Object> getPermissions(String membreUuid) {
         MembreGroupe membre = membreRepo.findByUuid(membreUuid)
                 .orElseThrow(() -> new RuntimeException("Membre introuvable"));
