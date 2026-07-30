@@ -16,17 +16,11 @@ public interface ProduitRepository extends JpaRepository<Produit, Long> {
         boolean existsByUuid(String uuid);
         List<Produit> findByGroupeId(Long groupeId);
     
-        // clearAutomatically = true : sans ça, un findByUuid/findById sur
-        // le MÊME produit plus loin dans la même transaction renverrait
-        // encore l'entité mise en cache par le contexte de persistance
-        // AVANT cette mise à jour en masse (JPQL bulk update), donc un
-        // stock périmé — critique ici car le mode multi doit renvoyer au
-        // frontend le stock réellement à jour juste après l'avoir modifié.
-        @Modifying(clearAutomatically = true)
+        @Modifying
         @Query("UPDATE Produit p SET p.quantiteStock = p.quantiteStock - :qte WHERE p.id = :id AND p.quantiteStock >= :qte")
         int decrementerStock(@Param("id") Long id, @Param("qte") int qte);
     
-        @Modifying(clearAutomatically = true)
+        @Modifying
         @Query("UPDATE Produit p SET p.quantiteStock = p.quantiteStock + :qte WHERE p.id = :id")
         void incrementerStock(@Param("id") Long id, @Param("qte") int qte);
 
