@@ -29,6 +29,15 @@ public class OperationMulti extends BaseEntity {
 
     private String messageErreur;
 
+    // Résultat de l'opération une fois traitée (JSON), utilisé pour
+    // renvoyer exactement la même réponse en cas de nouvelle tentative
+    // du client avec le même uuid d'opération (idempotence) — évite de
+    // ré-appliquer deux fois une vente/remboursement/mouvement de stock
+    // si la réponse s'est perdue en réseau après que le serveur a déjà
+    // traité l'opération avec succès.
+    @Column(columnDefinition = "TEXT")
+    private String resultat;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "membre_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})

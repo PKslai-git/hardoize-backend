@@ -68,6 +68,27 @@ public class DetteFournisseurService {
         return result;
     }
 
+    // ── Mode Multi : remboursement fournisseur traité par le backend ──
+    @Transactional
+    public Map<String, Object> rembourserMulti(Map<String, Object> body) {
+        String uuid = s(body, "detteUuid") != null
+                ? s(body, "detteUuid") : s(body, "uuid");
+        if (uuid == null) throw new RuntimeException("detteUuid manquant");
+
+        double montant = dz(body, "montant");
+        if (montant <= 0) throw new RuntimeException("Montant invalide");
+
+        DetteFournisseur df = detteFournRepo.findByUuid(uuid)
+                .orElseThrow(() -> new RuntimeException("Dette fournisseur introuvable"));
+
+        if (montant > df.getMontantRestant() + 0.01)
+            throw new RuntimeException(
+                    "Montant supérieur au solde restant (" +
+                    df.getMontantRestant() + ")");
+
+        return rembourser(uuid, montant);
+    }
+
     @Transactional
     public Map<String, Object> rembourser(String uuid, double montant) {
         DetteFournisseur df = detteFournRepo.findByUuid(uuid)

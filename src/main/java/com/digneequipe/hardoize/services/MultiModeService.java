@@ -2,7 +2,6 @@ package com.digneequipe.hardoize.services;
 
 import com.digneequipe.hardoize.models.*;
 import com.digneequipe.hardoize.repositories.*;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -28,8 +27,6 @@ public class MultiModeService {
     private final FournisseurService         fournisseurService;
     private final DetteFournisseurService    detteFournisseurService;
     private final HistoriqueService          historiqueService;
-    private final OperationMultiRepository   operationRepo;
-    private final ObjectMapper               objectMapper;
 
     // ── Rejoindre un groupe via QR ─────────────────────────────
     @Transactional
@@ -126,23 +123,6 @@ public class MultiModeService {
     }
 
     // ── Exécuter une opération en mode multi ─────────────────
-    // Toute écriture en mode multi (vente, mouvement de stock, création
-    // client/fournisseur, remboursement dette client/fournisseur) passe
-    // par ici : le backend calcule tout lui-même à partir de l'état
-    // réel sur Supabase et n'accepte jamais un état pré-calculé par le
-    // frontend (stock résultant, montant restant...), pour rester
-    // correct même si deux membres agissent au même moment.
-    //
-    // Idempotence : le frontend génère un "operationUuid" stable UNE
-    // SEULE FOIS par opération logique, et le renvoie identique à
-    // chaque nouvelle tentative (ex : l'appareil était hors-ligne,
-    // l'opération a été mise en file locale, puis rejouée au retour de
-    // connexion — ou bien la requête a réussi côté serveur mais la
-    // réponse s'est perdue avant d'arriver à l'appareil, qui retente).
-    // On journalise chaque opération dans operations_multi avec cet
-    // uuid : si on la revoit alors qu'elle est déjà "traitee", on
-    // renvoie le résultat déjà obtenu SANS ré-exécuter quoi que ce soit
-    // (jamais une deuxième vente, un deuxième remboursement, etc.).
     @Transactional
     public Map<String, Object> traiterOperation(
             Map<String, Object> payload, String telephone) {
@@ -163,102 +143,17 @@ public class MultiModeService {
 
         verifierPermission(membre.getId(), type);
 
-        String operationUuid = s(payload, "operationUuid");
-
-        OperationMulti op = null;
-        if (operationUuid != null) {
-            Optional<OperationMulti> existanteOpt = operationRepo.findByUuid(operationUuid);
-            if (existanteOpt.isPresent()) {
-                OperationMulti existante = existanteOpt.get();
-                if ("traitee".equals(existante.getStatut())) {
-                    // Déjà traitée avec succès — on rejoue exactement le
-                    // même résultat sans rien exécuter de plus.
-                    Map<String, Object> resultatRejoue = lireResultat(existante);
-                    if (resultatRejoue != null) return resultatRejoue;
-                    // Résultat illisible (ne devrait pas arriver) : on
-                    // retente prudemment ci-dessous plutôt que d'échouer.
-                }
-                op = existante; // "echec" ou résultat illisible : on retente sur la même ligne
-            }
-        }
-
-        if (op == null) {
-            op = OperationMulti.builder()
-                    .uuid(operationUuid != null
-                            ? operationUuid : UUID.randomUUID().toString())
-                    .type(type)
-                    .payload(toJson(payload))
-                    .statut("en_attente")
-                    .membre(membre)
-                    .groupe(groupe)
-                    .build();
-        }
-
-        try {
-            Map<String, Object> resultat = executerOperation(type, payload, telephone);
-            op.setStatut("traitee");
-            op.setResultat(toJson(resultat));
-            op.setMessageErreur(null);
-            operationRepo.save(op);
-            return resultat;
-        } catch (Exception e) {
-            op.setStatut("echec");
-            op.setMessageErreur(e.getMessage());
-            operationRepo.save(op);
-            throw e;
-        }
-    }
-
-    // Dispatch réel de l'opération vers le service concerné — séparé de
-    // traiterOperation() pour que l'enveloppe idempotence/journalisation
-    // ci-dessus reste la même quel que soit le type d'opération.
-    private Map<String, Object> executerOperation(
-            String type, Map<String, Object> payload, String telephone) {
-
-        Map<String, Object> data = dataOf(payload);
-
         return switch (type != null ? type : "") {
-            case "vente" ->
-                    venteService.enregistrerMulti(data, telephone);
-            case "mouvement_stock" ->
-                    produitService.mouvementStockMulti(data, telephone);
-            case "dette_remboursement" ->
-                    detteService.rembourserMulti(data);
-            case "dette_fournisseur_remboursement" ->
-                    detteFournisseurService.rembourserMulti(data);
-            case "dette_fournisseur_creation" ->
-                    detteFournisseurService.creerOuMaj(data);
-            case "client" ->
-                    clientService.creerOuMettreAJour(data, telephone);
-            case "fournisseur" ->
-                    fournisseurService.creerOuMettreAJour(data);
+            case "vente" -> {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> data =
+                        (Map<String, Object>) payload.get("data");
+                if (data == null) data = payload;
+                yield venteService.enregistrerMulti(data, telephone);
+            }
             default -> throw new RuntimeException(
                     "Type d'opération non supporté: " + type);
         };
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> dataOf(Map<String, Object> payload) {
-        Object data = payload.get("data");
-        return data instanceof Map ? (Map<String, Object>) data : payload;
-    }
-
-    private String toJson(Object o) {
-        try {
-            return objectMapper.writeValueAsString(o);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> lireResultat(OperationMulti op) {
-        if (op.getResultat() == null) return null;
-        try {
-            return objectMapper.readValue(op.getResultat(), Map.class);
-        } catch (Exception e) {
-            return null;
-        }
     }
 
     // ── Dashboard propriétaire ────────────────────────────────
@@ -572,18 +467,9 @@ public class MultiModeService {
                     "Aucune permission définie pour ce membre");
 
         boolean ok = switch (type != null ? type : "") {
-            case "vente"                         -> p.getPeutVendre();
-            case "mouvement_stock"               -> p.getPeutGererStock();
-            case "client"                        -> p.getPeutGererClients();
-            // Les fournisseurs sont gérés au même endroit que le stock
-            // (StockScreen) côté app — pas de permission dédiée séparée.
-            case "fournisseur"                   -> p.getPeutGererStock();
-            // Rembourser une dette suppose de pouvoir au moins la voir ;
-            // il n'existe pas de permission "gérer les dettes" séparée
-            // dans ce modèle de permissions.
-            case "dette_remboursement",
-                 "dette_fournisseur_remboursement",
-                 "dette_fournisseur_creation"      -> p.getPeutVoirDettes();
+            case "vente"          -> p.getPeutVendre();
+            case "mouvement_stock"-> p.getPeutGererStock();
+            case "client"         -> p.getPeutGererClients();
             default               -> false;
         };
         if (!ok)

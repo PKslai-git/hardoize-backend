@@ -89,13 +89,7 @@ public class VenteService {
         double montantTotal = 0;
         double beneficeNet  = 0;
 
-        // Vérification préliminaire (message d'erreur rapide et lisible
-        // avant toute écriture) — mais ce n'est PAS la garantie finale :
-        // deux ventes simultanées peuvent toutes les deux passer cette
-        // lecture avec un stock qui semble suffisant. La garantie réelle
-        // contre la survente vient du décrément atomique plus bas
-        // (produitRepo.decrementerStock, conditionné en SQL sur le stock
-        // au moment de l'écriture, pas au moment de cette lecture).
+        // Vérifier le stock pour chaque ligne
         for (Map<String, Object> ligne : lignesBody) {
             String pUuid = s(ligne, "produitUuid");
             if (pUuid == null) continue;
@@ -142,11 +136,6 @@ public class VenteService {
 
         // Créer les lignes + décrémenter stock
         List<Map<String, Object>> lignesDto = new ArrayList<>();
-        // Stock réellement à jour après décrément, par produit — c'est
-        // CE tableau (jamais la lecture initiale plus haut, potentiellement
-        // périmée par une vente concurrente d'un autre membre) que le
-        // frontend doit utiliser pour écraser son stock local.
-        List<Map<String, Object>> produitsMisAJour = new ArrayList<>();
         for (Map<String, Object> ligneBody : lignesBody) {
             String pUuid = s(ligneBody, "produitUuid");
             if (pUuid == null) continue;
@@ -182,28 +171,8 @@ public class VenteService {
                     .build();
             ligneVenteRepo.save(ligne);
 
-            // Décrémenter stock — atomique et conditionné en SQL (voir
-            // ProduitRepository.decrementerStock) : si 0 ligne affectée,
-            // c'est qu'une autre vente (autre membre, quasi simultanée)
-            // a déjà consommé le stock restant entre notre lecture plus
-            // haut et cet instant. On arrête tout ici (rollback complet
-            // de la transaction, y compris les décréments déjà faits sur
-            // d'autres lignes de CETTE vente) plutôt que de laisser
-            // passer une vente sur un stock devenu négatif.
-            int lignesAffectees = produitRepo.decrementerStock(produit.getId(), qteBase);
-            if (lignesAffectees == 0) {
-                Produit actuel = produitRepo.findByUuid(pUuid).orElse(produit);
-                throw new RuntimeException(
-                        "Stock insuffisant pour " + actuel.getNom() +
-                        " (déjà vendu par un autre membre entre-temps). " +
-                        "Disponible: " + actuel.getQuantiteStock());
-            }
-
-            Produit produitMisAJour = produitRepo.findByUuid(pUuid).orElse(produit);
-            Map<String, Object> pDto = new HashMap<>();
-            pDto.put("produitUuid",   produitMisAJour.getUuid());
-            pDto.put("quantiteStock", produitMisAJour.getQuantiteStock());
-            produitsMisAJour.add(pDto);
+            // Décrémenter stock
+            produitRepo.decrementerStock(produit.getId(), qteBase);
 
             Map<String, Object> lDto = new HashMap<>();
             lDto.put("uuid",        ligne.getUuid());
@@ -216,7 +185,6 @@ public class VenteService {
         }
 
         // Dette si crédit
-        Dette detteCreee = null;
         if ("credit".equals(s(body, "typePaiement"))
                 && client != null) {
             String dateRembStr = s(body, "dateRemboursement");
@@ -237,20 +205,11 @@ public class VenteService {
                     .utilisateur(user)
                     .groupe(groupe)
                     .build();
-            detteCreee = detteRepo.save(dette);
+            detteRepo.save(dette);
         }
 
         Map<String, Object> dto = buildDto(vente);
         dto.put("lignes", lignesDto);
-        // Stock authoritatif (voir commentaire plus haut) — le frontend
-        // doit s'en servir pour ÉCRASER le stock local des produits
-        // concernés, jamais le fusionner ni le recalculer lui-même.
-        dto.put("produitsMisAJour", produitsMisAJour);
-        if (detteCreee != null) {
-            dto.put("detteUuid",           detteCreee.getUuid());
-            dto.put("detteMontantRestant", detteCreee.getMontantRestant());
-            dto.put("clientUuid",          client.getUuid());
-        }
         return dto;
     }
 

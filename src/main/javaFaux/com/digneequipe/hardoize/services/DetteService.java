@@ -73,6 +73,32 @@ public class DetteService {
         return result;
     }
 
+    // ── Mode Multi : remboursement traité par le backend ──────────
+    // Valide le montant contre le solde réellement à jour côté serveur
+    // (jamais celui affiché localement, potentiellement périmé) avant
+    // d'appliquer — puis renvoie la dette telle qu'elle est maintenant
+    // sur Supabase, pour écrasement local.
+    @Transactional
+    public Map<String, Object> rembourserMulti(Map<String, Object> body) {
+        String uuid = s(body, "detteUuid") != null
+                ? s(body, "detteUuid") : s(body, "uuid");
+        if (uuid == null) throw new RuntimeException("detteUuid manquant");
+
+        double montant = dOrZero(body, "montant");
+        if (montant <= 0) throw new RuntimeException("Montant invalide");
+
+        Dette d = detteRepo.findByUuid(uuid)
+                .orElseThrow(() -> new RuntimeException("Dette introuvable"));
+
+        // Petite tolérance pour les arrondis flottants.
+        if (montant > d.getMontantRestant() + 0.01)
+            throw new RuntimeException(
+                    "Montant supérieur au solde restant (" +
+                    d.getMontantRestant() + ")");
+
+        return rembourser(uuid, montant);
+    }
+
     @Transactional
     public Map<String, Object> rembourser(String uuid, double montant) {
         Dette d = detteRepo.findByUuid(uuid)
