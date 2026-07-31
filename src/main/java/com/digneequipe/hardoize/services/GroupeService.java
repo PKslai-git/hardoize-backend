@@ -7,6 +7,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.Duration;
 
 @Service
 @RequiredArgsConstructor
@@ -142,7 +145,7 @@ public class GroupeService {
             dto.put("telephone",   m.getTelephone());
             dto.put("role",        m.getRole());
             dto.put("bailHeure",   m.getBailHeure());
-            dto.put("estConnecte", m.getEstConnecte());
+            dto.put("estConnecte", estReellementConnecte(m));
             dto.put("connexionPermanente", m.getConnexionPermanente());
 
             permissionRepo.findByMembreId(m.getId()).ifPresent(p -> {
@@ -231,7 +234,7 @@ public class GroupeService {
             dto.put("telephone",        m.getTelephone());
             dto.put("role",             m.getRole());
             dto.put("bailHeure",        m.getBailHeure());
-            dto.put("estConnecte",      m.getEstConnecte());
+            dto.put("estConnecte",      estReellementConnecte(m));
             dto.put("connexionPermanente", m.getConnexionPermanente());
 
             permissionRepo.findByMembreId(m.getId()).ifPresent(p -> {
@@ -294,5 +297,24 @@ public class GroupeService {
         if (taille == 0) return na.equals(nb);
         return na.substring(na.length() - taille)
                  .equals(nb.substring(nb.length() - taille));
+    }
+
+    // ── Statut "en ligne" réel, basé sur la fraîcheur du heartbeat ──
+    // Le booléen estConnecte brut ne redevient jamais false tout seul :
+    // avant, un membre restait "en ligne" indéfiniment dès sa première
+    // connexion, même après avoir fermé l'app sans jamais atteindre son
+    // heure de bail. L'app envoie un heartbeat (/multi/connecter) à
+    // chaque poll, environ toutes les 30s : au-delà de 90s (3 cycles
+    // manqués, marge pour la latence réseau) sans heartbeat, on
+    // considère le membre hors ligne, quelle que soit la valeur brute.
+    private static final long SEUIL_HORS_LIGNE_SECONDES = 90;
+
+    private boolean estReellementConnecte(MembreGroupe m) {
+        if (!Boolean.TRUE.equals(m.getEstConnecte())) return false;
+        if (m.getDerniereActivite() == null) return false;
+        long secoulees = Duration.between(
+                m.getDerniereActivite(), LocalDateTime.now(ZoneOffset.UTC)
+        ).getSeconds();
+        return secoulees <= SEUIL_HORS_LIGNE_SECONDES;
     }
 }

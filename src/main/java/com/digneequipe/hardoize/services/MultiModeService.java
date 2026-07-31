@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.Duration;
 import java.util.*;
 
 @Slf4j
@@ -53,6 +54,7 @@ public class MultiModeService {
                 .map(m -> {
                     etaitDejaConnecte[0] = Boolean.TRUE.equals(m.getEstConnecte());
                     m.setEstConnecte(true);
+                    m.setDerniereActivite(LocalDateTime.now(ZoneOffset.UTC));
                     if (nomAffiche != null) m.setNomAffiche(nomAffiche);
                     return membreRepo.save(m);
                 })
@@ -66,6 +68,7 @@ public class MultiModeService {
                             .role("vendeur")
                             .bailHeure(groupe.getHeureFermeture())
                             .estConnecte(true)
+                            .derniereActivite(LocalDateTime.now(ZoneOffset.UTC))
                             .connexionPermanente(false)
                             .build();
                     m = membreRepo.save(m);
@@ -205,7 +208,7 @@ public class MultiModeService {
             dto.put("nomAffiche",  m.getNomAffiche());
             dto.put("telephone",   m.getTelephone());
             dto.put("role",        m.getRole());
-            dto.put("estConnecte", m.getEstConnecte());
+            dto.put("estConnecte", estReellementConnecte(m));
             dto.put("bailHeure",   m.getBailHeure());
             permissionRepo.findByMembreId(m.getId())
                     .ifPresent(p -> dto.put("permissions",
@@ -285,13 +288,22 @@ public class MultiModeService {
     // même après fermeture de l'app), cette méthode est appelée à
     // chaque poll 30s tant que l'app est active — estConnecte
     // reflète donc une activité réelle et récente.
+    // ── Signal de présence (heartbeat) ────────────────────────
+    // Marque le membre comme connecté ET horodate ce heartbeat.
+    // BUG CORRIGÉ : avant, l'écriture était sautée dès que estConnecte
+    // valait déjà true (optimisation pour éviter une écriture inutile)
+    // — mais du coup, une fois connecté une première fois, plus AUCUN
+    // heartbeat suivant n'était enregistré, rendant impossible de
+    // distinguer "actif il y a 10 secondes" de "actif il y a 3 heures,
+    // app fermée depuis". Le statut "en ligne" affiché doit se baser
+    // sur la fraîcheur de derniereActivite (voir getMembres), donc ce
+    // champ DOIT être mis à jour à chaque appel, sans exception.
     @Transactional
     public void marquerConnecte(String membreUuid) {
         membreRepo.findByUuid(membreUuid).ifPresent(m -> {
-            if (!Boolean.TRUE.equals(m.getEstConnecte())) {
-                m.setEstConnecte(true);
-                membreRepo.save(m);
-            }
+            m.setEstConnecte(true);
+            m.setDerniereActivite(LocalDateTime.now(ZoneOffset.UTC));
+            membreRepo.save(m);
         });
     }
 
@@ -537,5 +549,19 @@ public class MultiModeService {
     private Double d(Map<String,Object> m, String k) {
         Object v = m.get(k);
         return v != null ? Double.parseDouble(v.toString()) : null;
+    }
+
+    // Voir GroupeService.estReellementConnecte pour le détail : le
+    // booléen brut estConnecte ne redevient jamais false tout seul,
+    // on se base donc sur la fraîcheur du dernier heartbeat.
+    private static final long SEUIL_HORS_LIGNE_SECONDES = 90;
+
+    private boolean estReellementConnecte(MembreGroupe m) {
+        if (!Boolean.TRUE.equals(m.getEstConnecte())) return false;
+        if (m.getDerniereActivite() == null) return false;
+        long secoulees = Duration.between(
+                m.getDerniereActivite(), LocalDateTime.now(ZoneOffset.UTC)
+        ).getSeconds();
+        return secoulees <= SEUIL_HORS_LIGNE_SECONDES;
     }
 }
