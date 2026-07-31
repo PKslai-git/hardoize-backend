@@ -193,13 +193,25 @@ public class SyncService {
             String uuid = s(m,"uuid");
             if (uuid == null) continue;
             try {
-                Produit p = produitRepo.findByUuid(uuid)
-                    .orElse(Produit.builder().uuid(uuid).build());
+                Optional<Produit> existant = produitRepo.findByUuid(uuid);
+                boolean estNouveau = existant.isEmpty();
+                Produit p = existant.orElse(Produit.builder().uuid(uuid).build());
                 p.setNom(s(m,"nom"));
                 p.setCategorie(s(m,"categorie"));
                 p.setPrixAchat(d(m,"prixAchat") != null ? d(m,"prixAchat") : 0.0);
                 p.setPrixVente(d(m,"prixVente") != null ? d(m,"prixVente") : 0.0);
-                p.setQuantiteStock(i(m,"quantiteStock") != null ? i(m,"quantiteStock") : 0);
+                // IMPORTANT : quantiteStock n'est accepté depuis ce canal
+                // QUE pour un produit encore inexistant (stock de départ
+                // à la création). Pour un produit déjà existant, la
+                // valeur envoyée par un appareil est un instantané local
+                // potentiellement obsolète — l'accepter écraserait, sans
+                // verrou ni vérification, le stock réel calculé de façon
+                // sûre par VenteService/MouvementStockService.enregistrerMulti
+                // (SELECT ... FOR UPDATE). Seuls ces derniers doivent
+                // pouvoir modifier le stock d'un produit existant.
+                if (estNouveau) {
+                    p.setQuantiteStock(i(m,"quantiteStock") != null ? i(m,"quantiteStock") : 0);
+                }
                 p.setStockMinimum(i(m,"stockMinimum") != null ? i(m,"stockMinimum") : 5);
                 p.setPhotoUri(s(m,"photoUri"));
                 p.setUtilisateur(user);

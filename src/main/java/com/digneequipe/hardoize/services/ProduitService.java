@@ -26,8 +26,9 @@ public class ProduitService {
         if (uuid == null)
             throw new RuntimeException("UUID obligatoire");
 
-        Produit p = produitRepo.findByUuid(uuid)
-                .orElse(Produit.builder().uuid(uuid).build());
+        Optional<Produit> existant = produitRepo.findByUuid(uuid);
+        boolean estNouveau = existant.isEmpty();
+        Produit p = existant.orElse(Produit.builder().uuid(uuid).build());
 
         p.setNom(s(body, "nom"));
         p.setCategorie(s(body, "categorie"));
@@ -35,8 +36,14 @@ public class ProduitService {
                 ? d(body, "prixAchat") : 0.0);
         p.setPrixVente(d(body, "prixVente") != null
                 ? d(body, "prixVente") : 0.0);
-        p.setQuantiteStock(i(body, "quantiteStock") != null
-                ? i(body, "quantiteStock") : 0);
+        // Stock initial accepté uniquement à la création — pour un
+        // produit existant, le stock ne doit être modifié QUE via les
+        // ventes/mouvements verrouillés (voir SyncService.syncProduits
+        // pour le détail du raisonnement).
+        if (estNouveau) {
+            p.setQuantiteStock(i(body, "quantiteStock") != null
+                    ? i(body, "quantiteStock") : 0);
+        }
         p.setStockMinimum(i(body, "stockMinimum") != null
                 ? i(body, "stockMinimum") : 5);
         p.setPhotoUri(s(body, "photoUri"));
