@@ -66,8 +66,11 @@ public class MouvementStockService {
         if (gUuid != null)
             groupeRepo.findByUuid(gUuid).ifPresent(m::setGroupe);
 
-        utilisateurRepo.findByTelephone(telephone)
-                .ifPresent(m::setUtilisateur);
+        Utilisateur auteurSolo = utilisateurRepo.findByTelephone(telephone).orElse(null);
+        if (auteurSolo != null) {
+            m.setUtilisateur(auteurSolo);
+            m.setNomUtilisateur(auteurSolo.getNom());
+        }
 
         m = mouvementRepo.save(m);
         return buildDto(m);
@@ -105,7 +108,14 @@ public class MouvementStockService {
 
         String pUuid = s(body, "produitUuid");
         if (pUuid == null) throw new RuntimeException("produitUuid manquant");
-        Produit produit = produitRepo.findByUuid(pUuid)
+
+        // ── Exclusion mutuelle à attente active ─────────────────────
+        // Voir VenteService.enregistrerMulti pour le détail : verrouille
+        // la ligne du produit pour toute la transaction, garantit un
+        // traitement strictement séquentiel des opérations concurrentes
+        // sur le même produit, et évite la lecture obsolète que
+        // provoquait l'ancienne combinaison UPDATE atomique + relecture.
+        Produit produit = produitRepo.findByUuidPourMiseAJour(pUuid)
                 .orElseThrow(() -> new RuntimeException("Produit introuvable"));
 
         String type = s(body, "type") != null ? s(body, "type") : "entree";
@@ -113,18 +123,16 @@ public class MouvementStockService {
         boolean estEntree = "entree".equals(type) || "retour".equals(type);
 
         if (estEntree) {
-            produitRepo.incrementerStock(produit.getId(), quantiteBase);
+            produit.setQuantiteStock(produit.getQuantiteStock() + quantiteBase);
         } else {
-            // Sortie / perte : décrément atomique (WHERE quantiteStock
-            // >= qte). On vérifie la valeur retournée : si 0, le stock a
-            // été épuisé entre-temps par une autre opération concurrente.
-            int misAJour = produitRepo.decrementerStock(produit.getId(), quantiteBase);
-            if (misAJour == 0) {
+            if (produit.getQuantiteStock() < quantiteBase) {
                 throw new RuntimeException(
                         "Stock insuffisant pour " + produit.getNom() +
                                 " (modifié entre-temps par un autre membre)");
             }
+            produit.setQuantiteStock(produit.getQuantiteStock() - quantiteBase);
         }
+        produitRepo.save(produit);
 
         MouvementStock m = MouvementStock.builder().uuid(uuid).build();
         m.setNomProduit(produit.getNom());
@@ -147,13 +155,16 @@ public class MouvementStockService {
         if (gUuid != null)
             groupeRepo.findByUuid(gUuid).ifPresent(m::setGroupe);
 
-        utilisateurRepo.findByTelephone(telephone).ifPresent(m::setUtilisateur);
+        Utilisateur auteur = utilisateurRepo.findByTelephone(telephone).orElse(null);
+        if (auteur != null) {
+            m.setUtilisateur(auteur);
+            m.setNomUtilisateur(auteur.getNom());
+        }
 
         m = mouvementRepo.save(m);
 
-        Produit refresh = produitRepo.findById(produit.getId()).orElse(produit);
         Map<String, Object> dto = buildDto(m);
-        dto.put("quantiteStock", refresh.getQuantiteStock());
+        dto.put("quantiteStock", produit.getQuantiteStock());
         return dto;
     }
 
@@ -170,6 +181,7 @@ public class MouvementStockService {
         dto.put("id",          m.getId());
         dto.put("uuid",        m.getUuid());
         dto.put("nomProduit",  m.getNomProduit());
+        dto.put("nomUtilisateur", m.getNomUtilisateur());
         dto.put("type",        m.getType());
         dto.put("motif",       m.getMotif());
         dto.put("quantite",    m.getQuantite());

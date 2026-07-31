@@ -129,43 +129,19 @@ public class VenteService {
         double montantTotal = 0;
         double beneficeNet  = 0;
 
-        // Vérifier le stock pour chaque ligne
-        for (Map<String, Object> ligne : lignesBody) {
-            String pUuid = s(ligne, "produitUuid");
-            if (pUuid == null) continue;
+        // Trier les lignes par produitUuid : garantit que toutes les
+        // transactions concurrentes verrouillent les produits dans le
+        // MÊME ordre, quel que soit l'ordre du panier de chaque membre.
+        // Sans ça, une vente A→B et une vente B→A pourraient chacune
+        // tenir un verrou que l'autre attend indéfiniment (interblocage).
+        List<Map<String, Object>> lignesTriees = new ArrayList<>(lignesBody);
+        lignesTriees.sort(Comparator.comparing(l -> String.valueOf(l.get("produitUuid"))));
 
-            Produit produit = produitRepo.findByUuid(pUuid)
-                    .orElseThrow(() ->
-                            new RuntimeException("Produit introuvable: " + pUuid));
-
-            int qteBase = i(ligne, "qteBase") != null
-                    ? i(ligne, "qteBase") : i(ligne, "quantite") != null
-                    ? i(ligne, "quantite") : 1;
-
-            if (produit.getQuantiteStock() < qteBase) {
-                throw new RuntimeException(
-                        "Stock insuffisant pour " + produit.getNom() +
-                                ". Disponible: " + produit.getQuantiteStock()
-                );
-            }
-
-            double prix = d(ligne, "prixUnitaire") != null
-                    ? d(ligne, "prixUnitaire") : produit.getPrixVente();
-            double prixAchat = d(ligne, "prixAchat") != null
-                    ? d(ligne, "prixAchat") : produit.getPrixAchat();
-            double sousTotal = prix * (
-                    i(ligne, "quantite") != null
-                            ? i(ligne, "quantite") : 1);
-
-            montantTotal += sousTotal;
-            beneficeNet  += (prix - prixAchat) * qteBase;
-        }
-
-        // Créer la vente
+        // Créer la vente (les lignes/décréments sont ajoutés ensuite,
+        // une fois chaque produit verrouillé et vérifié).
         Vente vente = Vente.builder()
                 .uuid(uuidVente != null ? uuidVente : UUID.randomUUID().toString())
-                .montantTotal(montantTotal)
-                .beneficeNet(beneficeNet)
+                .montantTotal(0.0) // colonne NOT NULL — vraie valeur posée après la boucle
                 .typePaiement(s(body, "typePaiement") != null
                         ? s(body, "typePaiement") : "especes")
                 .client(client)
@@ -174,26 +150,45 @@ public class VenteService {
                 .build();
         vente = venteRepo.save(vente);
 
-        // Créer les lignes + décrémenter stock
         List<Map<String, Object>> lignesDto = new ArrayList<>();
         List<Map<String, Object>> stocksMisAJour = new ArrayList<>();
-        for (Map<String, Object> ligneBody : lignesBody) {
+
+        for (Map<String, Object> ligneBody : lignesTriees) {
             String pUuid = s(ligneBody, "produitUuid");
             if (pUuid == null) continue;
 
-            Produit produit = produitRepo.findByUuid(pUuid).orElse(null);
-            if (produit == null) continue;
+            // ── Exclusion mutuelle à attente active ─────────────────
+            // Verrouille la ligne du produit pour toute la durée de
+            // cette transaction. Si un autre membre vend le même
+            // produit au même instant, sa transaction reste bloquée
+            // ICI jusqu'à ce que celle-ci commit — elle reprend alors
+            // avec le stock réellement à jour, jamais une valeur mise
+            // en cache. Les deux ventes sont ainsi traitées l'une après
+            // l'autre, jamais en parallèle sur le même produit.
+            Produit produit = produitRepo.findByUuidPourMiseAJour(pUuid)
+                    .orElseThrow(() ->
+                            new RuntimeException("Produit introuvable: " + pUuid));
 
             int qteAffichee = i(ligneBody, "quantite") != null
                     ? i(ligneBody, "quantite") : 1;
             int qteBase     = i(ligneBody, "qteBase") != null
                     ? i(ligneBody, "qteBase") : qteAffichee;
-            double prix     = d(ligneBody, "prixUnitaire") != null
+
+            if (produit.getQuantiteStock() < qteBase) {
+                throw new RuntimeException(
+                        "Stock insuffisant pour " + produit.getNom() +
+                                ". Disponible: " + produit.getQuantiteStock());
+            }
+
+            double prix = d(ligneBody, "prixUnitaire") != null
                     ? d(ligneBody, "prixUnitaire") : produit.getPrixVente();
             double prixAchat = d(ligneBody, "prixAchat") != null
                     ? d(ligneBody, "prixAchat") : produit.getPrixAchat();
             double sousTotal = prix * qteAffichee;
             double marge     = (prix - prixAchat) * qteAffichee;
+
+            montantTotal += sousTotal;
+            beneficeNet  += (prix - prixAchat) * qteBase;
 
             LigneVente ligne = LigneVente.builder()
                     .uuid(UUID.randomUUID().toString())
@@ -212,23 +207,16 @@ public class VenteService {
                     .build();
             ligneVenteRepo.save(ligne);
 
-            // Décrémenter stock — atomique côté SQL (WHERE quantiteStock
-            // >= qte). On DOIT vérifier la valeur retournée : si 0 ligne
-            // affectée, une autre vente concurrente a épuisé le stock
-            // entre notre vérification initiale et cet instant. Sans ce
-            // contrôle, la vente était enregistrée comme réussie alors
-            // que le stock n'était en réalité pas décrémenté.
-            int misAJour = produitRepo.decrementerStock(produit.getId(), qteBase);
-            if (misAJour == 0) {
-                throw new RuntimeException(
-                        "Stock insuffisant pour " + produit.getNom() +
-                                " (vendu entre-temps par un autre membre)");
-            }
+            // Modification directe de l'entité verrouillée — le
+            // dirty-checking JPA l'écrira au commit avec la valeur
+            // exacte, plus besoin de relire ensuite (donc plus de
+            // risque de lecture obsolète en cache).
+            produit.setQuantiteStock(produit.getQuantiteStock() - qteBase);
+            produitRepo.save(produit);
 
-            Produit refresh = produitRepo.findById(produit.getId()).orElse(produit);
             Map<String, Object> stockDto = new HashMap<>();
-            stockDto.put("produitUuid",    produit.getUuid());
-            stockDto.put("quantiteStock",  refresh.getQuantiteStock());
+            stockDto.put("produitUuid",   produit.getUuid());
+            stockDto.put("quantiteStock", produit.getQuantiteStock());
             stocksMisAJour.add(stockDto);
 
             Map<String, Object> lDto = new HashMap<>();
@@ -244,6 +232,10 @@ public class VenteService {
             lDto.put("marge",       ligne.getMarge());
             lignesDto.add(lDto);
         }
+
+        vente.setMontantTotal(montantTotal);
+        vente.setBeneficeNet(beneficeNet);
+        vente = venteRepo.save(vente);
 
         // Dette si crédit
         if ("credit".equals(s(body, "typePaiement"))

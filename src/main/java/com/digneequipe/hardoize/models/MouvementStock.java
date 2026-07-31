@@ -25,6 +25,11 @@ public class MouvementStock extends BaseEntity {
     private String  motif;
     @Column(nullable = false) private Integer quantite;
 
+    // Dénormalisé (comme nomProduit) : évite au client d'avoir à
+    // résoudre l'auteur du mouvement via une jointure, et garantit un
+    // affichage IDENTIQUE sur tous les appareils une fois synchronisé.
+    private String  nomUtilisateur;
+
     @Builder.Default private Double prixUnitaire = 0.0;
     @Builder.Default private Double montantTotal  = 0.0;
     @Builder.Default private Double montantPaye   = 0.0;
