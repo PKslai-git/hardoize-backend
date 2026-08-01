@@ -45,8 +45,13 @@ public class DetteService {
             try {
                 long ms = Long.parseLong(
                         body.get("dateRemboursement").toString());
+                // IMPORTANT : ZoneOffset.UTC, jamais ZoneId.systemDefault()
+                // — cf. BaseEntity.onCreate : toute date stockée côté
+                // serveur doit représenter de l'UTC, sans quoi l'échéance
+                // se retrouve décalée par rapport à ce que voient les
+                // autres appareils du même groupe.
                 d.setDateRemboursement(LocalDateTime.ofInstant(
-                        Instant.ofEpochMilli(ms), ZoneId.systemDefault()));
+                        Instant.ofEpochMilli(ms), ZoneOffset.UTC));
             } catch (NumberFormatException e) {
                 // Ignorer
             }
@@ -107,6 +112,12 @@ public class DetteService {
         dto.put("groupeUuid",      d.getGroupe() != null
                 ? d.getGroupe().getUuid() : null);
         dto.put("createdAt",       d.getCreatedAt());
+        // Manquait jusqu'ici : sans ce champ dans le DTO, l'échéance
+        // n'était tout simplement jamais transmise aux autres appareils
+        // du groupe (ni via le poll 30s, ni via la sync initiale) — ils
+        // recevaient la dette mais avec une échéance absente/nulle.
+        dto.put("dateRemboursement", d.getDateRemboursement());
+        dto.put("dateSolde",         d.getDateSolde());
         return dto;
     }
 

@@ -51,8 +51,14 @@ public class SyncService {
         if (val == null) return null;
         try {
             long ms = Long.parseLong(val);
+            // IMPORTANT : ZoneOffset.UTC, jamais ZoneId.systemDefault() —
+            // toutes les dates stockées côté serveur DOIVENT représenter
+            // de l'UTC (voir BaseEntity.onCreate), sans quoi cette valeur
+            // se retrouve décalée par rapport aux autres champs de date
+            // (createdAt, etc.) dès que l'hébergeur n'a pas UTC comme
+            // fuseau système par défaut.
             return LocalDateTime.ofInstant(
-                Instant.ofEpochMilli(ms), ZoneId.systemDefault());
+                Instant.ofEpochMilli(ms), ZoneOffset.UTC);
         } catch (NumberFormatException e) {
             try {
                 return LocalDate.parse(val,

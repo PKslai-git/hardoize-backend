@@ -3,6 +3,7 @@ package com.digneequipe.hardoize.services;
 import com.digneequipe.hardoize.models.*;
 import com.digneequipe.hardoize.repositories.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -10,6 +11,7 @@ import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class VenteService {
@@ -169,6 +171,16 @@ public class VenteService {
                     .orElseThrow(() ->
                             new RuntimeException("Produit introuvable: " + pUuid));
 
+            // Log volontairement laissé en place (pas juste temporaire) :
+            // permet de VÉRIFIER en production, dans les logs serveur,
+            // que deux ventes concurrentes sur le même produit sont bien
+            // traitées l'une après l'autre (thread différent, mais
+            // jamais le même stockAvant deux fois de suite pour le même
+            // produit avant qu'un décrément n'ait été commité).
+            log.info("Vente {} — verrou obtenu sur produit {} (stockAvant={}) [thread={}]",
+                    vente.getUuid(), pUuid, produit.getQuantiteStock(),
+                    Thread.currentThread().getName());
+
             int qteAffichee = i(ligneBody, "quantite") != null
                     ? i(ligneBody, "quantite") : 1;
             int qteBase     = i(ligneBody, "qteBase") != null
@@ -214,6 +226,10 @@ public class VenteService {
             produit.setQuantiteStock(produit.getQuantiteStock() - qteBase);
             produitRepo.save(produit);
 
+            log.info("Vente {} — produit {} décrémenté de {} (stockApres={}) [thread={}]",
+                    vente.getUuid(), pUuid, qteBase, produit.getQuantiteStock(),
+                    Thread.currentThread().getName());
+
             Map<String, Object> stockDto = new HashMap<>();
             stockDto.put("produitUuid",   produit.getUuid());
             stockDto.put("quantiteStock", produit.getQuantiteStock());
@@ -241,11 +257,36 @@ public class VenteService {
         if ("credit".equals(s(body, "typePaiement"))
                 && client != null) {
             String dateRembStr = s(body, "dateRemboursement");
-            LocalDateTime dateRemb = dateRembStr != null
-                    ? LocalDate.parse(dateRembStr,
-                            DateTimeFormatter.ofPattern("dd/MM/yyyy"))
-                    .atTime(23, 59, 59)
-                    : LocalDateTime.now().plusDays(30);
+            // IMPORTANT : VentesScreen (mode multi) envoie un timestamp
+            // ms (Date.getTime()), pas une chaîne "JJ/MM/AAAA" — avant
+            // cette correction, LocalDate.parse levait une exception non
+            // rattrapée sur CE format, faisant échouer toute la vente à
+            // crédit. On essaie donc d'abord le timestamp ms (le cas
+            // réel), puis "JJ/MM/AAAA" par compatibilité, avec repli
+            // silencieux à 30 jours si rien ne correspond — jamais de
+            // vente perdue à cause d'un format de date.
+            LocalDateTime dateRemb;
+            if (dateRembStr != null) {
+                LocalDateTime parsed = null;
+                try {
+                    long ms = Long.parseLong(dateRembStr);
+                    parsed = LocalDateTime.ofInstant(
+                            Instant.ofEpochMilli(ms), ZoneOffset.UTC);
+                } catch (NumberFormatException e1) {
+                    try {
+                        parsed = LocalDate.parse(dateRembStr,
+                                DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+                                .atTime(23, 59, 59);
+                    } catch (Exception e2) {
+                        parsed = null;
+                    }
+                }
+                dateRemb = parsed != null
+                        ? parsed
+                        : LocalDateTime.now(ZoneOffset.UTC).plusDays(30);
+            } else {
+                dateRemb = LocalDateTime.now(ZoneOffset.UTC).plusDays(30);
+            }
 
             Dette dette = Dette.builder()
                     .uuid(UUID.randomUUID().toString())
