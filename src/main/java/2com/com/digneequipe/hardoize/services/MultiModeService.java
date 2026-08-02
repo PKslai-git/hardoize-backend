@@ -2,7 +2,6 @@ package com.digneequipe.hardoize.services;
 
 import com.digneequipe.hardoize.models.*;
 import com.digneequipe.hardoize.repositories.*;
-import com.digneequipe.hardoize.websocket.GroupeWebSocketHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -30,7 +29,102 @@ public class MultiModeService {
     private final FournisseurService         fournisseurService;
     private final DetteFournisseurService    detteFournisseurService;
     private final HistoriqueService          historiqueService;
-    private final GroupeWebSocketHandler     groupeWebSocketHandler;
+
+    // ── Rejoindre un groupe via QR ─────────────────────────────
+    @Transactional
+    public Map<String, Object> rejoindreGroupe(
+            String codeQR, String telephone, String nomAffiche) {
+
+        Groupe groupe = groupeRepo.findByCodeQR(codeQR)
+                .orElseThrow(() ->
+                        new RuntimeException("Code QR invalide ou expiré"));
+
+        Utilisateur user = utilisateurRepo
+                .findByTelephone(telephone)
+                .orElseThrow(() ->
+                        new RuntimeException("Utilisateur introuvable"));
+
+        // Vérifier si déjà membre — et s'il était déjà connecté avant
+        // ce scan (pour donner un message adapté côté client : "déjà
+        // connecté" plutôt que de refaire toute la reconnexion en
+        // silence, ou l'inverse).
+        final boolean[] etaitDejaConnecte = { false };
+        MembreGroupe membre = membreRepo
+                .findByGroupeIdAndTelephone(groupe.getId(), telephone)
+                .map(m -> {
+                    etaitDejaConnecte[0] = Boolean.TRUE.equals(m.getEstConnecte());
+                    m.setEstConnecte(true);
+                    m.setDerniereActivite(LocalDateTime.now(ZoneOffset.UTC));
+                    if (nomAffiche != null) m.setNomAffiche(nomAffiche);
+                    return membreRepo.save(m);
+                })
+                .orElseGet(() -> {
+                    MembreGroupe m = MembreGroupe.builder()
+                            .groupe(groupe)
+                            .utilisateur(user)
+                            .nomAffiche(nomAffiche != null
+                                    ? nomAffiche : user.getNom())
+                            .telephone(telephone)
+                            .role("vendeur")
+                            .bailHeure(groupe.getHeureFermeture())
+                            .estConnecte(true)
+                            .derniereActivite(LocalDateTime.now(ZoneOffset.UTC))
+                            .connexionPermanente(false)
+                            .build();
+                    m = membreRepo.save(m);
+
+                    // Permissions par défaut
+                    PermissionMembre perms = PermissionMembre.builder()
+                            .membre(m)
+                            .peutVendre(true)
+                            .peutVoirDettes(false)
+                            .peutGererStock(false)
+                            .peutVoirStats(false)
+                            .peutGererClients(false)
+                            .peutVoirHistorique(false)
+                            .build();
+                    permissionRepo.save(perms);
+                    return m;
+                });
+
+        // Passer en mode multi si 2+ membres
+        long nbMembres = membreRepo.countByGroupeId(groupe.getId());
+        if (nbMembres > 1) {
+            groupe.setMode("multi");
+            groupeRepo.save(groupe);
+        }
+
+        // Charger les permissions
+        PermissionMembre perms = permissionRepo
+                .findByMembreId(membre.getId()).orElse(null);
+
+        // Correction : on ne renvoie plus les ids numériques (membreId,
+        // groupeId) — ils sont propres à la base serveur et ne
+        // correspondent à rien côté SQLite local. Seuls les uuid,
+        // identiques partout, doivent être utilisés par l'app.
+        Map<String, Object> result = new HashMap<>();
+        result.put("membreUuid",  membre.getUuid());
+        result.put("groupeUuid",  groupe.getUuid());
+        result.put("groupeNom",   groupe.getNom());
+        result.put("mode",        groupe.getMode());
+        result.put("bailHeure",   membre.getBailHeure());
+        result.put("permissions", buildPermissionsDto(perms));
+        result.put("dejaConnecte", etaitDejaConnecte[0]);
+        return result;
+    }
+
+    // ── Polling sync 30s ──────────────────────────────────────
+    public Map<String, Object> getSyncData(String groupeUuid, String depuis) {
+        Groupe groupe = groupeRepo.findByUuid(groupeUuid)
+                .orElseThrow(() -> new RuntimeException("Groupe introuvable"));
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("groupeUuid", groupe.getUuid());
+        data.put("mode",       groupe.getMode());
+        data.put("timestamp",  LocalDateTime.now(ZoneOffset.UTC).toString());
+        data.put("ok",         true);
+        return data;
+    }
 
     // ── Exécuter une opération en mode multi ─────────────────
     @Transactional
@@ -50,11 +144,6 @@ public class MultiModeService {
                 .findByGroupeIdAndTelephone(groupe.getId(), telephone)
                 .orElseThrow(() ->
                         new RuntimeException("Membre introuvable dans ce groupe"));
-
-        if (!"approuve".equals(membre.getStatutAdhesion())) {
-            throw new RuntimeException(
-                    "Adhésion à ce groupe pas encore approuvée par le propriétaire");
-        }
 
         verifierPermission(membre.getId(), type);
 
@@ -97,17 +186,6 @@ public class MultiModeService {
                     throw new RuntimeException("uuid de la dette manquant");
                 double montant = d(data, "montant") != null ? d(data, "montant") : 0.0;
                 yield detteService.rembourser(detteUuid, montant);
-            }
-            case "dette_fournisseur_remboursement" -> {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> data =
-                        (Map<String, Object>) payload.get("data");
-                if (data == null) data = payload;
-                String detteUuid = s(data, "uuid");
-                if (detteUuid == null)
-                    throw new RuntimeException("uuid de la dette fournisseur manquant");
-                double montant = d(data, "montant") != null ? d(data, "montant") : 0.0;
-                yield detteFournisseurService.rembourser(detteUuid, montant);
             }
             default -> throw new RuntimeException(
                     "Type d'opération non supporté: " + type);
@@ -200,8 +278,55 @@ public class MultiModeService {
         Map<String, Object> dto = new HashMap<>();
         dto.put("uuid", membre.getUuid());
         dto.put("role", membre.getRole());
-        dto.put("groupeUuid", groupe.getUuid());
         return dto;
+    }
+
+    // ── Signal de présence (heartbeat) ────────────────────────
+    // Marque le membre comme connecté. Contrairement à l'ancien
+    // fonctionnement, où estConnecte n'était mis à jour qu'à la
+    // jointure initiale (donc figé "vrai" pour toujours ensuite,
+    // même après fermeture de l'app), cette méthode est appelée à
+    // chaque poll 30s tant que l'app est active — estConnecte
+    // reflète donc une activité réelle et récente.
+    // ── Signal de présence (heartbeat) ────────────────────────
+    // Marque le membre comme connecté ET horodate ce heartbeat.
+    // BUG CORRIGÉ : avant, l'écriture était sautée dès que estConnecte
+    // valait déjà true (optimisation pour éviter une écriture inutile)
+    // — mais du coup, une fois connecté une première fois, plus AUCUN
+    // heartbeat suivant n'était enregistré, rendant impossible de
+    // distinguer "actif il y a 10 secondes" de "actif il y a 3 heures,
+    // app fermée depuis". Le statut "en ligne" affiché doit se baser
+    // sur la fraîcheur de derniereActivite (voir getMembres), donc ce
+    // champ DOIT être mis à jour à chaque appel, sans exception.
+    @Transactional
+    public void marquerConnecte(String membreUuid) {
+        membreRepo.findByUuid(membreUuid).ifPresent(m -> {
+            m.setEstConnecte(true);
+            m.setDerniereActivite(LocalDateTime.now(ZoneOffset.UTC));
+            membreRepo.save(m);
+        });
+    }
+
+    // ── Déconnecter un membre ─────────────────────────────────
+    @Transactional
+    public void deconnecterMembre(String membreUuid) {
+        membreRepo.findByUuid(membreUuid).ifPresent(m -> {
+            m.setEstConnecte(false);
+            membreRepo.save(m);
+
+            long nbConnectes = membreRepo
+                    .findByGroupeId(m.getGroupe().getId())
+                    .stream()
+                    .filter(mb -> mb.getEstConnecte()
+                            && !"proprietaire".equals(mb.getRole()))
+                    .count();
+
+            if (nbConnectes == 0) {
+                Groupe g = m.getGroupe();
+                g.setMode("solo");
+                groupeRepo.save(g);
+            }
+        });
     }
 
     // ── Connexion permanente (activer/désactiver, propriétaire) ──
@@ -238,10 +363,7 @@ public class MultiModeService {
         MembreGroupe membre = membreRepo.findByUuid(membreUuid)
                 .orElseThrow(() -> new RuntimeException("Membre introuvable"));
         verifierEstProprietaire(membre, telephoneAuteur);
-        if (membre.getUtilisateur() != null) {
-            groupeWebSocketHandler.fermerSessionsDeUtilisateur(
-                    membre.getGroupe().getUuid(), membre.getUtilisateur().getId());
-        }
+        deconnecterMembre(membreUuid);
     }
 
     private void verifierEstProprietaire(MembreGroupe membre, String telephoneAuteur) {
@@ -259,7 +381,16 @@ public class MultiModeService {
     // manuelle en base), et une simple comparaison stricte pouvait à
     // tort refuser l'accès au propriétaire lui-même.
     private boolean telephonesEquivalents(String a, String b) {
-        return com.digneequipe.hardoize.util.TelephoneUtil.equivalents(a, b);
+        if (a == null || b == null) return false;
+        String na = a.replaceAll("[^0-9]", "");
+        String nb = b.replaceAll("[^0-9]", "");
+        // Comparer sur les 8 derniers chiffres (numéro local, sans
+        // indicatif pays) suffit à identifier la même ligne.
+        int len = Math.min(na.length(), nb.length());
+        int taille = Math.min(len, 8);
+        if (taille == 0) return na.equals(nb);
+        return na.substring(na.length() - taille)
+                 .equals(nb.substring(nb.length() - taille));
     }
 
     // ── Lire les permissions d'un membre ──────────────────────
@@ -338,10 +469,7 @@ public class MultiModeService {
             p.setPeutVoirHistorique(body.get("peutVoirHistorique"));
 
         permissionRepo.save(p);
-        Map<String, Object> dto = buildPermissionsDto(p);
-        dto.put("groupeUuid", groupe.getUuid());
-        dto.put("membreUuid", membre.getUuid());
-        return dto;
+        return buildPermissionsDto(p);
     }
 
     // ── Passer en mode multi / solo ───────────────────────────
@@ -390,12 +518,11 @@ public class MultiModeService {
             // Pas de permission dédiée "fournisseurs" dans le modèle
             // actuel : rattachée à la gestion du stock, cohérent avec
             // l'écran Stock qui gère aussi les fournisseurs par défaut.
-            case "fournisseur"       -> p.getPeutGererClients();
+            case "fournisseur"       -> p.getPeutGererStock();
             // Idem : pas de permission "gérer les dettes" dédiée ; on
             // s'appuie sur peutVoirDettes (seule permission liée aux
             // dettes existante aujourd'hui).
             case "dette_remboursement" -> p.getPeutVoirDettes();
-            case "dette_fournisseur_remboursement" -> p.getPeutVoirDettes();
             default                  -> false;
         };
         if (!ok)
@@ -424,12 +551,17 @@ public class MultiModeService {
         return v != null ? Double.parseDouble(v.toString()) : null;
     }
 
-    // Voir GroupeService.estReellementConnecte : basé sur une session
-    // WebSocket ouverte pour ce membre sur ce groupe, plus fiable que
-    // l'ancien seuil de fraîcheur de heartbeat.
+    // Voir GroupeService.estReellementConnecte pour le détail : le
+    // booléen brut estConnecte ne redevient jamais false tout seul,
+    // on se base donc sur la fraîcheur du dernier heartbeat.
+    private static final long SEUIL_HORS_LIGNE_SECONDES = 90;
+
     private boolean estReellementConnecte(MembreGroupe m) {
-        if (m.getGroupe() == null || m.getUtilisateur() == null) return false;
-        return groupeWebSocketHandler.estConnecte(
-                m.getGroupe().getUuid(), m.getUtilisateur().getId());
+        if (!Boolean.TRUE.equals(m.getEstConnecte())) return false;
+        if (m.getDerniereActivite() == null) return false;
+        long secoulees = Duration.between(
+                m.getDerniereActivite(), LocalDateTime.now(ZoneOffset.UTC)
+        ).getSeconds();
+        return secoulees <= SEUIL_HORS_LIGNE_SECONDES;
     }
 }

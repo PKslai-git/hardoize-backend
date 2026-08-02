@@ -60,26 +60,6 @@ public class UtilisateurController {
         }
     }
 
-    // PUT /api/utilisateurs/push-token
-    // Enregistre/rafraîchit le token push Expo de l'utilisateur courant
-    // (appelé à chaque démarrage de l'app). Un token vide/null désactive
-    // simplement l'envoi de notifications à cet utilisateur (voir
-    // PushNotificationService, qui ignore un token absent).
-    @PutMapping("/push-token")
-    public ResponseEntity<ApiResponse<String>> enregistrerPushToken(
-            @RequestBody Map<String, String> body,
-            Authentication auth) {
-        try {
-            Utilisateur u = utilisateurRepo.findByTelephone(auth.getName())
-                    .orElseThrow(() -> new RuntimeException("Utilisateur introuvable"));
-            u.setExpoPushToken(body.get("token"));
-            utilisateurRepo.save(u);
-            return ResponseEntity.ok(ApiResponse.ok("ok"));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
-        }
-    }
-
     @PutMapping("/{id}/role")
     public ResponseEntity<ApiResponse<Map<String,Object>>> updateRole(
             @PathVariable Long id,

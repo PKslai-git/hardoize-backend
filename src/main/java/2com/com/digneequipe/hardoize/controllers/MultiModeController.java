@@ -2,7 +2,6 @@ package com.digneequipe.hardoize.controllers;
 
 import com.digneequipe.hardoize.dto.response.ApiResponse;
 import com.digneequipe.hardoize.services.MultiModeService;
-import com.digneequipe.hardoize.websocket.GroupeWebSocketHandler;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -10,20 +9,47 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-/**
- * Le rejoindre/sync/heartbeat par polling a été retiré d'ici :
- *  - rejoindre               -> AdhesionController (jointure en 2 temps)
- *  - sync/{groupeUuid}       -> supprimé (remplacé par le WebSocket)
- *  - connecter/{membreUuid}  -> supprimé (heartbeat mort, présence via WS)
- *  - deconnecter/{membreUuid}-> supprimé (fermer la connexion WS suffit)
- */
 @RestController
 @RequestMapping("/api/multi")
 @RequiredArgsConstructor
 public class MultiModeController {
 
     private final MultiModeService multiService;
-    private final GroupeWebSocketHandler groupeWebSocketHandler;
+
+    // POST /api/multi/rejoindre
+    @PostMapping("/rejoindre")
+    public ResponseEntity<ApiResponse<Map<String,Object>>> rejoindre(
+            @RequestBody Map<String,String> body,
+            Authentication auth) {
+        try {
+            return ResponseEntity.ok(ApiResponse.ok(
+                    "Groupe rejoint",
+                    multiService.rejoindreGroupe(
+                            body.get("codeQR"),
+                            auth.getName(),
+                            body.get("nomAffiche")
+                    )
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(e.getMessage()));
+        }
+    }
+
+    // GET /api/multi/sync/{groupeUuid}
+    @GetMapping("/sync/{groupeUuid}")
+    public ResponseEntity<ApiResponse<Map<String,Object>>> sync(
+            @PathVariable String groupeUuid,
+            @RequestParam(required = false) String depuis) {
+        try {
+            return ResponseEntity.ok(ApiResponse.ok(
+                    multiService.getSyncData(groupeUuid, depuis)
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(e.getMessage()));
+        }
+    }
 
     // POST /api/multi/operation
     @PostMapping("/operation")
@@ -31,36 +57,10 @@ public class MultiModeController {
             @RequestBody Map<String,Object> payload,
             Authentication auth) {
         try {
-            Map<String, Object> resultat =
-                    multiService.traiterOperation(payload, auth.getName());
-
-            // Diffusion temps réel : à ce stade la transaction est déjà
-            // commitée (traiterOperation est @Transactional et vient de
-            // retourner), donc les autres appareils qui recevront ce
-            // message verraient bien la même donnée. Le message contient
-            // directement le résultat — pas besoin pour les autres
-            // appareils de refaire un appel HTTP pour l'appliquer (voir
-            // appliquerResultatOperation côté frontend).
-            Object groupeUuid = payload.get("groupeUuid");
-            if (groupeUuid instanceof String gUuid) {
-                // "data" (la requête d'origine : clientUuid, typePaiement,
-                // produitUuid...) est inclus en plus de "resultat" (la
-                // vérité calculée par le serveur : stocks à jour, lignes,
-                // montants) — les AUTRES appareils ont besoin des deux
-                // pour reconstituer l'enregistrement local (voir
-                // appliquerResultatOperation côté frontend, qui prenait
-                // déjà les deux en argument pour son propre appel HTTP).
-                Object data = payload.getOrDefault("data", payload);
-                groupeWebSocketHandler.diffuser(gUuid, "operation", Map.of(
-                        "operationType", payload.get("type"),
-                        "operationUuid", payload.getOrDefault("operationUuid", ""),
-                        "auteur",        auth.getName(),
-                        "data",          data,
-                        "resultat",      resultat
-                ));
-            }
-
-            return ResponseEntity.ok(ApiResponse.ok("Opération traitée", resultat));
+            return ResponseEntity.ok(ApiResponse.ok(
+                    "Opération traitée",
+                    multiService.traiterOperation(payload, auth.getName())
+            ));
         } catch (Exception e) {
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error(e.getMessage()));
@@ -84,9 +84,7 @@ public class MultiModeController {
     // GET /api/multi/donnees-completes/{groupeUuid}
     // Snapshot complet du groupe (produits, ventes, clients, dettes,
     // mouvements de stock) — utilisé pour la synchronisation initiale
-    // d'un nouveau membre, et pour rattraper les données manquées après
-    // une coupure réseau (le WebSocket ne rejoue pas les événements
-    // passés pendant une déconnexion).
+    // d'un nouveau membre ou d'un nouveau téléphone qui rejoint le groupe.
     @GetMapping("/donnees-completes/{groupeUuid}")
     public ResponseEntity<ApiResponse<Map<String,Object>>> donneesCompletes(
             @PathVariable String groupeUuid) {
@@ -109,10 +107,11 @@ public class MultiModeController {
             @RequestBody Map<String,String> body,
             Authentication auth) {
         try {
-            Map<String, Object> resultat = multiService.modifierRoleMembre(
-                    membreUuid, body.get("role"), auth.getName());
-            diffuserSiGroupeConnu(resultat, "membre_role_maj", resultat);
-            return ResponseEntity.ok(ApiResponse.ok("Rôle mis à jour", resultat));
+            return ResponseEntity.ok(ApiResponse.ok(
+                    "Rôle mis à jour",
+                    multiService.modifierRoleMembre(
+                            membreUuid, body.get("role"), auth.getName())
+            ));
         } catch (Exception e) {
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error(e.getMessage()));
@@ -149,9 +148,9 @@ public class MultiModeController {
     }
 
     // POST /api/multi/membre/{membreUuid}/deconnecter-force
-    // Déconnexion forcée PAR LE PROPRIÉTAIRE — ferme réellement la/les
-    // session(s) WebSocket ouvertes de ce membre (voir
-    // MultiModeService.deconnecterMembreParProprietaire).
+    // Déconnexion forcée PAR LE PROPRIÉTAIRE — distincte de
+    // /deconnecter/{membreUuid} (auto-déconnexion du membre lui-même
+    // à l'échéance du bail, sans vérification d'autorisation requise).
     @PostMapping("/membre/{membreUuid}/deconnecter-force")
     public ResponseEntity<ApiResponse<String>> deconnecterForce(
             @PathVariable String membreUuid, Authentication auth) {
@@ -161,6 +160,23 @@ public class MultiModeController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
         }
+    }
+
+    // POST /api/multi/connecter/{membreUuid}
+    // Signal de présence — appelé à chaque poll 30s côté client.
+    @PostMapping("/connecter/{membreUuid}")
+    public ResponseEntity<ApiResponse<String>> connecter(
+            @PathVariable String membreUuid) {
+        multiService.marquerConnecte(membreUuid);
+        return ResponseEntity.ok(ApiResponse.ok("ok"));
+    }
+
+    // POST /api/multi/deconnecter/{membreUuid}
+    @PostMapping("/deconnecter/{membreUuid}")
+    public ResponseEntity<ApiResponse<Void>> deconnecter(
+            @PathVariable String membreUuid) {
+        multiService.deconnecterMembre(membreUuid);
+        return ResponseEntity.ok(ApiResponse.ok(null));
     }
 
     // GET /api/multi/permissions/membre/{membreUuid}
@@ -184,23 +200,13 @@ public class MultiModeController {
             @RequestBody Map<String,Boolean> body,
             Authentication auth) {
         try {
-            Map<String, Object> resultat =
-                    multiService.modifierPermissions(membreUuid, body, auth.getName());
-            diffuserSiGroupeConnu(resultat, "membre_permissions_maj", resultat);
             return ResponseEntity.ok(ApiResponse.ok(
-                    "Permissions mises à jour", resultat));
+                    "Permissions mises à jour",
+                    multiService.modifierPermissions(membreUuid, body, auth.getName())
+            ));
         } catch (Exception e) {
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error(e.getMessage()));
-        }
-    }
-
-    /** Diffuse `data` sur le groupe si resultat contient un groupeUuid exploitable. */
-    private void diffuserSiGroupeConnu(
-            Map<String, Object> resultat, String type, Object data) {
-        Object gUuid = resultat != null ? resultat.get("groupeUuid") : null;
-        if (gUuid instanceof String s) {
-            groupeWebSocketHandler.diffuser(s, type, data);
         }
     }
 

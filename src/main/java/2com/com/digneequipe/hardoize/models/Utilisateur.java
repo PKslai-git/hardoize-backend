@@ -37,10 +37,4 @@ public class Utilisateur extends BaseEntity {
 
     @Builder.Default
     private Boolean estActif = true;
-
-    // Token push Expo (ExponentPushToken[...]), mis à jour à chaque
-    // démarrage de l'app côté client. Peut être null (utilisateur pas
-    // encore connecté depuis cette mise à jour, ou notifications
-    // refusées) — toujours vérifier avant l'envoi.
-    private String expoPushToken;
 }

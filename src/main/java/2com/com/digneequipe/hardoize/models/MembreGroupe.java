@@ -30,21 +30,16 @@ public class MembreGroupe extends BaseEntity {
 
     @Builder.Default private String  role               = "vendeur";
     @Builder.Default private String  bailHeure          = "18:00";
+    @Builder.Default private Boolean estConnecte        = false;
     @Builder.Default private Boolean estActif           = true;
     @Builder.Default private Boolean connexionPermanente = false;
 
-    // "en_attente" | "approuve" | "refuse" — l'adhésion via un lien/QR
-    // d'invitation crée une ligne "en_attente" tant que le propriétaire
-    // ne l'a pas validée (voir AdhesionService). Les membres créés
-    // avant cette fonctionnalité, ou par un autre moyen (ajout manuel),
-    // restent "approuve" par défaut — pas de régression d'accès.
-    @Builder.Default private String statutAdhesion = "approuve";
-
-    // Le statut "en ligne / hors ligne" n'est plus stocké ici : il est
-    // désormais dérivé en temps réel des sessions WebSocket ouvertes
-    // (voir GroupeWebSocketHandler.estConnecte) — le stocker ici aussi
-    // aurait créé une deuxième source de vérité, potentiellement
-    // désynchronisée (c'était d'ailleurs la cause de plusieurs bugs
-    // corrigés précédemment : "en ligne" figé après fermeture de l'app,
-    // heartbeat manqué, etc.).
+    // Horodatage du dernier "heartbeat" (appel /multi/connecter, envoyé
+    // à chaque poll 30s côté app). Sans ça, estConnecte restait bloqué
+    // à `true` indéfiniment dès la première connexion — même après
+    // fermeture de l'app sans passer par le bail programmé — car rien
+    // ne permettait de détecter qu'un membre avait simplement cessé de
+    // pinguer. Le statut affiché doit maintenant se baser sur la
+    // fraîcheur de ce champ, pas uniquement sur le booléen brut.
+    private java.time.LocalDateTime derniereActivite;
 }

@@ -2,7 +2,6 @@ package com.digneequipe.hardoize.services;
 
 import com.digneequipe.hardoize.models.*;
 import com.digneequipe.hardoize.repositories.*;
-import com.digneequipe.hardoize.websocket.GroupeWebSocketHandler;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,7 +19,6 @@ public class GroupeService {
     private final MembreGroupeRepository   membreRepo;
     private final PermissionMembreRepository permissionRepo;
     private final UtilisateurRepository    utilisateurRepo;
-    private final GroupeWebSocketHandler   groupeWebSocketHandler;
 
     @Transactional
     public Map<String, Object> creer(Map<String, Object> body,
@@ -58,6 +56,7 @@ public class GroupeService {
                 .telephone(proprietaire.getTelephone())
                 .role("proprietaire")
                 .bailHeure(groupe.getHeureFermeture())
+                .estConnecte(true)
                 .connexionPermanente(true)
                 .build();
         membre = membreRepo.save(membre);
@@ -271,6 +270,7 @@ public class GroupeService {
         }
 
         membre.setEstActif(false);
+        membre.setEstConnecte(false);
         membreRepo.save(membre);
 
         // Si plus aucun vendeur connecté → repasser en solo
@@ -290,18 +290,31 @@ public class GroupeService {
     // raisonnement (un numéro peut être stocké sous des formats
     // légèrement différents selon le point d'entrée).
     private boolean telephonesEquivalents(String a, String b) {
-        return com.digneequipe.hardoize.util.TelephoneUtil.equivalents(a, b);
+        if (a == null || b == null) return false;
+        String na = a.replaceAll("[^0-9]", "");
+        String nb = b.replaceAll("[^0-9]", "");
+        int taille = Math.min(Math.min(na.length(), nb.length()), 8);
+        if (taille == 0) return na.equals(nb);
+        return na.substring(na.length() - taille)
+                 .equals(nb.substring(nb.length() - taille));
     }
 
-    // ── Statut "en ligne" réel, basé sur une session WebSocket ──
-    // ouverte pour ce membre sur ce groupe (voir GroupeWebSocketHandler).
-    // Remplace l'ancien seuil de fraîcheur de heartbeat (90s) : la
-    // connexion/déconnexion est désormais détectée en temps réel, sans
-    // la fenêtre d'incertitude ni le risque de rester bloqué "en ligne"
-    // après une fermeture brutale de l'app sans dernier heartbeat.
+    // ── Statut "en ligne" réel, basé sur la fraîcheur du heartbeat ──
+    // Le booléen estConnecte brut ne redevient jamais false tout seul :
+    // avant, un membre restait "en ligne" indéfiniment dès sa première
+    // connexion, même après avoir fermé l'app sans jamais atteindre son
+    // heure de bail. L'app envoie un heartbeat (/multi/connecter) à
+    // chaque poll, environ toutes les 30s : au-delà de 90s (3 cycles
+    // manqués, marge pour la latence réseau) sans heartbeat, on
+    // considère le membre hors ligne, quelle que soit la valeur brute.
+    private static final long SEUIL_HORS_LIGNE_SECONDES = 90;
+
     private boolean estReellementConnecte(MembreGroupe m) {
-        if (m.getGroupe() == null || m.getUtilisateur() == null) return false;
-        return groupeWebSocketHandler.estConnecte(
-                m.getGroupe().getUuid(), m.getUtilisateur().getId());
+        if (!Boolean.TRUE.equals(m.getEstConnecte())) return false;
+        if (m.getDerniereActivite() == null) return false;
+        long secoulees = Duration.between(
+                m.getDerniereActivite(), LocalDateTime.now(ZoneOffset.UTC)
+        ).getSeconds();
+        return secoulees <= SEUIL_HORS_LIGNE_SECONDES;
     }
 }
