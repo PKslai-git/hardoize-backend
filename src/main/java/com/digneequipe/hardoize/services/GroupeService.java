@@ -133,6 +133,7 @@ public class GroupeService {
         return result;
     }
 
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> getMembres(Long groupeId) {
         List<MembreGroupe> membres =
                 membreRepo.findByGroupeId(groupeId);
@@ -207,6 +208,7 @@ public class GroupeService {
         return buildDto(groupe);
     }
 
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> getMembresParUuid(
             String groupeUuid, String telephone) {
 
