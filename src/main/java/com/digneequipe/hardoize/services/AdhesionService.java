@@ -73,7 +73,7 @@ public class AdhesionService {
 
         Map<String, Object> result = new HashMap<>();
         result.put("token", token);
-        result.put("expireLe", expireLe.toString());
+        result.put("expireLe", expireLe.toString() + "Z");
         result.put("minutesValidite", MINUTES_VALIDITE);
         return result;
     }
