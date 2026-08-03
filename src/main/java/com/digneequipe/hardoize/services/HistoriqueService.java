@@ -44,6 +44,7 @@ public class HistoriqueService {
         return buildVenteDto(h);
     }
 
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> getHistoriqueVentes(Long groupeId) {
         List<HistoriqueVente> list =
                 histVenteRepo.findByGroupeIdOrderByDateDesc(groupeId);
@@ -88,6 +89,7 @@ public class HistoriqueService {
         return buildPaiementDto(p);
     }
 
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> getHistoriquePaiements(
             Long groupeId) {
         List<HistoriquePaiement> list =

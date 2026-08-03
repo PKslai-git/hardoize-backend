@@ -41,8 +41,8 @@ public class FournisseurService {
         return buildDto(f);
     }
 
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> getByGroupe(Long groupeId) {
-        List<Fournisseur> fourns =
                 fournisseurRepo.findByGroupeIdAndEstActif(groupeId, true);
         List<Map<String, Object>> result = new ArrayList<>();
         for (Fournisseur f : fourns) result.add(buildDto(f));
@@ -85,6 +85,7 @@ public class FournisseurService {
         return buildDetteDto(df);
     }
 
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> getDettesByGroupe(Long groupeId) {
         List<DetteFournisseur> dettes =
                 detteFourn.findByGroupeId(groupeId);

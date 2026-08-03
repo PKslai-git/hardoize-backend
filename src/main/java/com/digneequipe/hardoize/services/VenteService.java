@@ -308,6 +308,7 @@ public class VenteService {
         return dto;
     }
 
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> getByGroupe(
             Long groupeId, boolean avecLignes) {
         List<Vente> ventes =

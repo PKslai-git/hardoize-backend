@@ -96,6 +96,7 @@ public class GroupeService {
         return buildDto(groupe);
     }
 
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> getByProprietaire(String telephone) {
         Utilisateur user = utilisateurRepo
                 .findByTelephone(telephone)
@@ -125,9 +126,10 @@ public class GroupeService {
                 continue; // déjà couvert par getByProprietaire
 
             Map<String, Object> dto = buildDto(g);
-            dto.put("role",       m.getRole());
-            dto.put("membreUuid", m.getUuid());
-            dto.put("bailHeure",  m.getBailHeure());
+            dto.put("role",           m.getRole());
+            dto.put("membreUuid",     m.getUuid());
+            dto.put("bailHeure",      m.getBailHeure());
+            dto.put("statutAdhesion", m.getStatutAdhesion());
             result.add(dto);
         }
         return result;

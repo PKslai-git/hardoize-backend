@@ -67,6 +67,7 @@ public class ProduitService {
         return buildDto(p, true);
     }
 
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> getByGroupe(
             Long groupeId, boolean avecUnites) {
 

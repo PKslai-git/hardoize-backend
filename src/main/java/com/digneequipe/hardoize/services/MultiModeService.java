@@ -115,6 +115,7 @@ public class MultiModeService {
     }
 
     // ── Dashboard propriétaire ────────────────────────────────
+    @Transactional(readOnly = true)
     public Map<String, Object> getDashboard(String groupeUuid) {
         Groupe groupe = groupeRepo.findByUuid(groupeUuid)
                 .orElseThrow(() -> new RuntimeException("Groupe introuvable"));

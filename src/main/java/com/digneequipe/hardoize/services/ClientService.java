@@ -44,6 +44,7 @@ public class ClientService {
         return buildDto(c);
     }
 
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> getByGroupe(Long groupeId) {
         List<Client> clients =
                 clientRepo.findByGroupeIdAndEstActif(groupeId, true);

@@ -168,8 +168,8 @@ public class MouvementStockService {
         return dto;
     }
 
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> getByGroupe(Long groupeId) {
-        List<MouvementStock> mvts =
                 mouvementRepo.findByGroupeIdOrderByCreatedAtDesc(groupeId);
         List<Map<String, Object>> result = new ArrayList<>();
         for (MouvementStock m : mvts) result.add(buildDto(m));

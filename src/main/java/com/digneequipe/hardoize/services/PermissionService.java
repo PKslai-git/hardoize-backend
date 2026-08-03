@@ -60,6 +60,7 @@ public class PermissionService {
         return buildDto(p);
     }
 
+    @Transactional(readOnly = true)
     public Map<String, Object> getByMembre(Long membreId) {
         PermissionMembre p = permissionRepo
                 .findByMembreId(membreId)
@@ -96,6 +97,7 @@ public class PermissionService {
         return modifier(membre.getId(), permsBody);
     }
 
+    @Transactional(readOnly = true)
     public Map<String, Object> getByMembreUuid(String membreUuid) {
         MembreGroupe membre = membreRepo.findByUuid(membreUuid)
                 .orElseThrow(() -> new RuntimeException("Membre introuvable"));
