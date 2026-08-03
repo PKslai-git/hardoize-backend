@@ -75,6 +75,7 @@ public class DetteService {
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> getByGroupe(Long groupeId) {
+        List<Dette> dettes = detteRepo.findByGroupeId(groupeId);
         List<Map<String, Object>> result = new ArrayList<>();
         for (Dette d : dettes) result.add(buildDto(d));
         return result;
