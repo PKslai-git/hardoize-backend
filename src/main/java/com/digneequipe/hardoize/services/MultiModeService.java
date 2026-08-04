@@ -87,6 +87,27 @@ public class MultiModeService {
                 if (data == null) data = payload;
                 yield clientService.creerOuMettreAJour(data, telephone);
             }
+            case "produit" -> {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> data =
+                        (Map<String, Object>) payload.get("data");
+                if (data == null) data = payload;
+                yield produitService.creerOuMettreAJour(data, telephone);
+            }
+            case "dette" -> {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> data =
+                        (Map<String, Object>) payload.get("data");
+                if (data == null) data = payload;
+                yield detteService.creerOuMaj(data);
+            }
+            case "dette_fournisseur" -> {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> data =
+                        (Map<String, Object>) payload.get("data");
+                if (data == null) data = payload;
+                yield detteFournisseurService.creerOuMaj(data);
+            }
             case "dette_remboursement" -> {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> data =
@@ -392,9 +413,12 @@ public class MultiModeService {
             // actuel : rattachée à la gestion du stock, cohérent avec
             // l'écran Stock qui gère aussi les fournisseurs par défaut.
             case "fournisseur"       -> p.getPeutGererClients();
+            case "produit"           -> p.getPeutGererStock();
             // Idem : pas de permission "gérer les dettes" dédiée ; on
             // s'appuie sur peutVoirDettes (seule permission liée aux
             // dettes existante aujourd'hui).
+            case "dette"                            -> p.getPeutVoirDettes();
+            case "dette_fournisseur"                -> p.getPeutVoirDettes();
             case "dette_remboursement" -> p.getPeutVoirDettes();
             case "dette_fournisseur_remboursement" -> p.getPeutVoirDettes();
             default                  -> false;

@@ -112,6 +112,7 @@ public class DetteFournisseurService {
         dto.put("groupeUuid",      df.getGroupe() != null
                 ? df.getGroupe().getUuid() : null);
         dto.put("createdAt",       df.getCreatedAt());
+        dto.put("dateRemboursement", df.getDateRemboursement());
         return dto;
     }
 

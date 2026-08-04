@@ -64,6 +64,34 @@ public class ProduitService {
                 .ifPresent(p::setUtilisateur);
 
         p = produitRepo.save(p);
+
+        // Unités de mesure : remplace intégralement la liste existante,
+        // comme le fait déjà UniteProduitDB.insererPlusieurs côté local.
+        // Sans ceci, créer/modifier un produit en mode multi ne
+        // propageait jamais ses unités aux autres appareils — seul le
+        // produit "de base" (nom/prix/stock) était transmis.
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> unitesBody =
+                (List<Map<String, Object>>) body.get("unites");
+        if (unitesBody != null) {
+            uniteProduitRepo.deleteByProduitId(p.getId());
+            int ordre = 0;
+            for (Map<String, Object> ub : unitesBody) {
+                UniteProduit u = UniteProduit.builder()
+                        .uuid(s(ub, "uuid") != null
+                                ? s(ub, "uuid") : UUID.randomUUID().toString())
+                        .produit(p)
+                        .nom(s(ub, "nom"))
+                        .facteur(d(ub, "facteur") != null ? d(ub, "facteur") : 1.0)
+                        .prixAchat(d(ub, "prixAchat") != null ? d(ub, "prixAchat") : 0.0)
+                        .prixVente(d(ub, "prixVente") != null ? d(ub, "prixVente") : 0.0)
+                        .estBase(Boolean.TRUE.equals(ub.get("estBase")))
+                        .ordre(ordre++)
+                        .build();
+                uniteProduitRepo.save(u);
+            }
+        }
+
         return buildDto(p, true);
     }
 

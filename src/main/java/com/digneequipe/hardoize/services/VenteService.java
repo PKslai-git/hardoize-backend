@@ -253,6 +253,7 @@ public class VenteService {
         vente.setBeneficeNet(beneficeNet);
         vente = venteRepo.save(vente);
 
+        Dette detteCreee = null;
         // Dette si crédit
         if ("credit".equals(s(body, "typePaiement"))
                 && client != null) {
@@ -300,11 +301,25 @@ public class VenteService {
                     .groupe(groupe)
                     .build();
             detteRepo.save(dette);
+            detteCreee = dette;
         }
 
         Map<String, Object> dto = buildDto(vente);
         dto.put("lignes", lignesDto);
         dto.put("stocksMisAJour", stocksMisAJour);
+        if (detteCreee != null) {
+            Map<String, Object> detteDto = new HashMap<>();
+            detteDto.put("uuid",              detteCreee.getUuid());
+            detteDto.put("montantTotal",       detteCreee.getMontantTotal());
+            detteDto.put("montantRembourse",   detteCreee.getMontantRembourse());
+            detteDto.put("montantRestant",     detteCreee.getMontantRestant());
+            detteDto.put("statut",             detteCreee.getStatut());
+            detteDto.put("clientUuid",         client.getUuid());
+            detteDto.put("venteUuid",          vente.getUuid());
+            detteDto.put("groupeUuid",         groupe.getUuid());
+            detteDto.put("dateRemboursement",  detteCreee.getDateRemboursement());
+            dto.put("dette", detteDto);
+        }
         return dto;
     }
 

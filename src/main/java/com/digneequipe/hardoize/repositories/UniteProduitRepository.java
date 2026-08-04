@@ -10,4 +10,5 @@ public interface UniteProduitRepository
     Optional<UniteProduit> findByUuid(String uuid);
     boolean existsByUuid(String uuid);
     List<UniteProduit> findByProduitIdOrderByOrdreAsc(Long produitId);
+    void deleteByProduitId(Long produitId);
 }
