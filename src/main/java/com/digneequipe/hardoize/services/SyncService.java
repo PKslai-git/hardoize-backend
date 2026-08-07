@@ -154,12 +154,43 @@ public class SyncService {
                 }
                 mg = membreRepo.save(mg);
                 idMap.put(uuid, mg.getId());
+                assurerPermissionsDefaut(mg);
                 n++;
             } catch (Exception e) {
                 log.error("Sync membre uuid={}: {}", uuid, e.getMessage());
             }
         }
         return n;
+    }
+
+    // BUG CORRIGÉ : syncMembres() (utilisé pour pousser vers le serveur
+    // un groupe/membre créé localement en premier — voir
+    // App.js/obtenirOuCreerGroupeDefaut) ne créait JAMAIS de ligne
+    // PermissionMembre pour le membre synchronisé. Un propriétaire
+    // dont le PDV par défaut avait été créé localement (le cas normal
+    // au premier lancement) puis simplement synchronisé — plutôt que
+    // créé via GroupeService.creer() — se retrouvait donc, dès qu'un
+    // vendeur rejoignait son groupe et qu'une opération multi passait
+    // par MultiModeService.verifierPermission(), sans AUCUNE ligne de
+    // permissions : "Aucune permission définie pour ce membre" (vente,
+    // stock, dettes, contacts — tout refusé, y compris pour le
+    // propriétaire lui-même). Symétrique de la protection déjà en
+    // place dans GroupeService.creer() (propriétaire = accès complet)
+    // et AdhesionService (nouveau membre = peutVendre uniquement) —
+    // idempotent (ne touche rien si une ligne existe déjà).
+    private void assurerPermissionsDefaut(MembreGroupe mg) {
+        if (permissionRepo.findByMembreId(mg.getId()).isPresent()) return;
+        boolean estProprietaire = "proprietaire".equals(mg.getRole());
+        PermissionMembre perms = PermissionMembre.builder()
+                .membre(mg)
+                .peutVendre(true)
+                .peutVoirDettes(estProprietaire)
+                .peutGererStock(estProprietaire)
+                .peutVoirStats(estProprietaire)
+                .peutGererClients(estProprietaire)
+                .peutVoirHistorique(estProprietaire)
+                .build();
+        permissionRepo.save(perms);
     }
 
     // 3) Fournisseurs

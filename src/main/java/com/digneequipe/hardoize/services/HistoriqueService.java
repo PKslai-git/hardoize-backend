@@ -44,6 +44,54 @@ public class HistoriqueService {
         return buildVenteDto(h);
     }
 
+    // ── Historique ventes : incrément atomique (Mode Multi) ────
+    // BUG CORRIGÉ : VenteService.enregistrerMulti ne touchait jamais
+    // historique_ventes — la fonctionnalité "Historique" restait vide
+    // en mode multi (aucune mise à jour locale sur l'appareil vendeur,
+    // et donc rien à diffuser/synchroniser aux autres). Contrairement
+    // au flux solo (chaque appareil incrémente sa propre ligne locale
+    // au fil de l'eau, puis SyncService.syncHistoriqueVentes pousse un
+    // upsert par uuid), le mode multi a besoin d'une source de vérité
+    // UNIQUE et atomique — sinon deux ventes simultanées sur deux
+    // appareils écraseraient le total de l'un ou l'autre au lieu de
+    // s'additionner. uuid déterministe (groupe+date), verrou pessimiste
+    // identique à celui du stock (ProduitRepository) : la ligne du
+    // jour est verrouillée pour toute la transaction, donc deux ventes
+    // concurrentes sont appliquées l'une après l'autre, jamais perdues.
+    @Transactional
+    public Map<String, Object> incrementerVenteMulti(
+            Long groupeId, String groupeUuid,
+            double montant, double benefice, String typePaiement) {
+        if (groupeId == null) return null;
+
+        String date = java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString();
+        HistoriqueVente h = histVenteRepo
+                .findByGroupeIdAndDatePourMiseAJour(groupeId, date)
+                .orElse(null);
+
+        if (h == null) {
+            h = HistoriqueVente.builder()
+                    .uuid("hist-" + groupeUuid + "-" + date)
+                    .date(date)
+                    .totalVentes(0.0).totalEspeces(0.0).totalCredit(0.0)
+                    .beneficeNet(0.0).nbVentes(0)
+                    .build();
+            groupeRepo.findById(groupeId).ifPresent(h::setGroupe);
+        }
+
+        h.setTotalVentes(h.getTotalVentes() + montant);
+        h.setBeneficeNet(h.getBeneficeNet() + benefice);
+        h.setNbVentes(h.getNbVentes() + 1);
+        if ("credit".equals(typePaiement)) {
+            h.setTotalCredit(h.getTotalCredit() + montant);
+        } else {
+            h.setTotalEspeces(h.getTotalEspeces() + montant);
+        }
+
+        h = histVenteRepo.save(h);
+        return buildVenteDto(h);
+    }
+
     @Transactional(readOnly = true)
     public List<Map<String, Object>> getHistoriqueVentes(Long groupeId) {
         List<HistoriqueVente> list =

@@ -191,6 +191,12 @@ public class MultiModeService {
         data.put("fournisseurs",    fournisseurService.getByGroupe(id));
         data.put("dettesFournisseurs", detteFournisseurService.getByGroupe(id));
         data.put("historiqueVentes",   historiqueService.getHistoriqueVentes(id));
+        // BUG CORRIGÉ : historiquePaiements était absent de ce snapshot —
+        // un appareil qui se reconnectait après une coupure ne rattrapait
+        // donc jamais les remboursements (clients/fournisseurs) manqués
+        // pendant qu'il était déconnecté, même si dettes/dettesFournisseurs
+        // (les soldes) étaient, eux, bien rattrapés.
+        data.put("historiquePaiements", historiqueService.getHistoriquePaiements(id));
         data.put("timestamp",       LocalDateTime.now(ZoneOffset.UTC).toString());
         return data;
     }
@@ -296,17 +302,22 @@ public class MultiModeService {
         // avoir. Avant, ce cas levait "Permissions introuvables" et
         // bloquait tout — on crée maintenant des permissions par
         // défaut à la volée plutôt que d'échouer.
+        // Défaut aligné sur assurerPermissionsDefaut (SyncService) et
+        // l'auto-réparation de verifierPermission ci-dessous : un
+        // propriétaire sans ligne de permissions obtient l'accès
+        // complet, pas seulement peutVendre.
+        boolean estProprietaireDefaut = "proprietaire".equals(membre.getRole());
         PermissionMembre p = permissionRepo
                 .findByMembreId(membre.getId())
                 .orElseGet(() -> {
                     PermissionMembre def = PermissionMembre.builder()
                             .membre(membre)
                             .peutVendre(true)
-                            .peutVoirDettes(false)
-                            .peutGererStock(false)
-                            .peutVoirStats(false)
-                            .peutGererClients(false)
-                            .peutVoirHistorique(false)
+                            .peutVoirDettes(estProprietaireDefaut)
+                            .peutGererStock(estProprietaireDefaut)
+                            .peutVoirStats(estProprietaireDefaut)
+                            .peutGererClients(estProprietaireDefaut)
+                            .peutVoirHistorique(estProprietaireDefaut)
                             .build();
                     return permissionRepo.save(def);
                 });
@@ -395,15 +406,30 @@ public class MultiModeService {
         PermissionMembre p = permissionRepo
                 .findByMembreId(membreId).orElse(null);
 
-        // Absence de ligne de permissions = accès refusé par défaut
-        // (ne devrait normalement jamais arriver : une ligne est créée
-        // pour chaque membre dès qu'il rejoint un groupe — voir
-        // rejoindreGroupe). Avant : `return;` ici laissait passer
-        // l'opération silencieusement, à l'inverse de ce que dit ce
-        // commentaire.
-        if (p == null)
-            throw new RuntimeException(
-                    "Aucune permission définie pour ce membre");
+        // BUG CORRIGÉ : une ligne de permissions manquante (ex. membre
+        // synchronisé via SyncService avant le correctif ci-dessus,
+        // ou tout autre chemin de création oublié à l'avenir) faisait
+        // échouer TOUTE opération — vente, stock, dettes, contacts —
+        // avec "Aucune permission définie", y compris pour le
+        // propriétaire. On s'auto-répare maintenant ici exactement
+        // comme le fait déjà getPermissions() (même défaut : accès
+        // complet pour un propriétaire, peutVendre seul sinon),
+        // plutôt que de bloquer silencieusement l'utilisateur sans
+        // qu'aucun écran ne lui permette de corriger la situation.
+        if (p == null) {
+            MembreGroupe m = membreRepo.findById(membreId).orElse(null);
+            boolean estProprietaire = m != null && "proprietaire".equals(m.getRole());
+            p = PermissionMembre.builder()
+                    .membre(m)
+                    .peutVendre(true)
+                    .peutVoirDettes(estProprietaire)
+                    .peutGererStock(estProprietaire)
+                    .peutVoirStats(estProprietaire)
+                    .peutGererClients(estProprietaire)
+                    .peutVoirHistorique(estProprietaire)
+                    .build();
+            p = permissionRepo.save(p);
+        }
 
         boolean ok = switch (type != null ? type : "") {
             case "vente"             -> p.getPeutVendre();

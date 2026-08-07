@@ -23,6 +23,7 @@ public class VenteService {
     private final ClientRepository      clientRepo;
     private final GroupeRepository      groupeRepo;
     private final UtilisateurRepository utilisateurRepo;
+    private final HistoriqueService     historiqueService;
 
     // ── Mode Solo : stocker sans vérification ─────────────────
     @Transactional
@@ -304,9 +305,23 @@ public class VenteService {
             detteCreee = dette;
         }
 
+        // Historique ventes du jour : incrément atomique côté serveur,
+        // seule source de vérité en mode multi (voir HistoriqueService.
+        // incrementerVenteMulti) — inclus dans le résultat pour que
+        // CET appareil ET tous les autres (via l'écho WebSocket de
+        // MultiModeController) appliquent le même total à jour, sans
+        // jamais recalculer localement (qui désynchroniserait dès que
+        // deux vendeurs vendent le même jour).
+        Map<String, Object> historiqueDto = groupe != null
+                ? historiqueService.incrementerVenteMulti(
+                        groupe.getId(), groupe.getUuid(),
+                        montantTotal, beneficeNet, s(body, "typePaiement"))
+                : null;
+
         Map<String, Object> dto = buildDto(vente);
         dto.put("lignes", lignesDto);
         dto.put("stocksMisAJour", stocksMisAJour);
+        if (historiqueDto != null) dto.put("historiqueVente", historiqueDto);
         if (detteCreee != null) {
             Map<String, Object> detteDto = new HashMap<>();
             detteDto.put("uuid",              detteCreee.getUuid());
