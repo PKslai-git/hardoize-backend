@@ -244,6 +244,12 @@ public class MultiModeService {
         verifierEstProprietaire(membre, telephoneAuteur);
         membre.setConnexionPermanente(actif);
         membreRepo.save(membre);
+        // BUG CORRIGÉ : sans cette notification, le membre concerné ne
+        // découvrait jamais le changement avant sa prochaine
+        // reconnexion complète — son appareil gardait programmée
+        // l'ancienne minuterie de bail (ou continuait, à l'inverse, de
+        // se croire protégé après une désactivation) jusqu'à l'échéance.
+        notifierMembreBailMisAJour(membre);
     }
 
     // ── Prolonger (ou modifier) l'heure de bail d'un membre ────
@@ -257,15 +263,60 @@ public class MultiModeService {
         verifierEstProprietaire(membre, telephoneAuteur);
         membre.setBailHeure(nouvelleHeure);
         membreRepo.save(membre);
+        // BUG CORRIGÉ : le prolongement n'était jamais appliqué en
+        // pratique — l'appareil du membre gardait sa minuterie locale
+        // programmée sur l'ANCIENNE heure (calculée une seule fois à
+        // la connexion) et se déconnectait quand même à l'heure
+        // d'origine. On pousse maintenant la nouvelle heure en direct
+        // pour qu'il reprogramme sa minuterie immédiatement.
+        notifierMembreBailMisAJour(membre);
+    }
+
+    private void notifierMembreBailMisAJour(MembreGroupe membre) {
+        if (membre.getUtilisateur() == null || membre.getGroupe() == null) return;
+        groupeWebSocketHandler.envoyerAUtilisateur(
+                membre.getGroupe().getUuid(), membre.getUtilisateur().getId(),
+                "membre_bail_maj",
+                Map.of(
+                        "membreUuid", membre.getUuid(),
+                        "bailHeure", membre.getBailHeure(),
+                        "connexionPermanente", Boolean.TRUE.equals(membre.getConnexionPermanente())
+                ));
     }
 
     // ── Déconnexion forcée par le propriétaire ─────────────────
+    // BUG CORRIGÉ : ne fermait que la session WebSocket en cours —
+    // sans toucher au statut d'adhésion, l'appareil du membre se
+    // reconnectait tout seul (reconnexion automatique avec backoff,
+    // voir websocketManager.js côté frontend) quelques secondes plus
+    // tard, comme si de rien n'était. On repasse maintenant son
+    // adhésion en "en_attente" : toute reconnexion — automatique ou
+    // en retapant sur le groupe — est refusée dès la poignée de main
+    // WebSocket (voir JwtHandshakeInterceptor) tant que le propriétaire
+    // ne l'a pas de nouveau approuvée. La connexion permanente est
+    // également désactivée : une déconnexion forcée doit "tenir",
+    // pas être immédiatement contournée par ce réglage.
     @Transactional
     public void deconnecterMembreParProprietaire(
             String membreUuid, String telephoneAuteur) {
         MembreGroupe membre = membreRepo.findByUuid(membreUuid)
                 .orElseThrow(() -> new RuntimeException("Membre introuvable"));
         verifierEstProprietaire(membre, telephoneAuteur);
+
+        if (membre.getUtilisateur() != null && membre.getGroupe() != null) {
+            // Notifier AVANT de fermer la session (sinon plus personne
+            // pour recevoir le message) — le frontend affiche un
+            // message dédié plutôt que de laisser deviner l'utilisateur
+            // pourquoi il vient d'être coupé.
+            groupeWebSocketHandler.envoyerAUtilisateur(
+                    membre.getGroupe().getUuid(), membre.getUtilisateur().getId(),
+                    "deconnecte_force", Map.of("membreUuid", membre.getUuid()));
+        }
+
+        membre.setStatutAdhesion("en_attente");
+        membre.setConnexionPermanente(false);
+        membreRepo.save(membre);
+
         if (membre.getUtilisateur() != null) {
             groupeWebSocketHandler.fermerSessionsDeUtilisateur(
                     membre.getGroupe().getUuid(), membre.getUtilisateur().getId());

@@ -192,6 +192,39 @@ public class GroupeWebSocketHandler extends TextWebSocketHandler {
         }
     }
 
+    /**
+     * Envoie un message JSON {type, data} uniquement aux sessions d'UN
+     * membre précis d'un groupe (peut en avoir plusieurs — deux
+     * appareils connectés au même compte). Utilisé pour notifier en
+     * direct un changement qui ne concerne que lui (bail prolongé,
+     * connexion permanente activée/désactivée, déconnexion forcée)
+     * sans déranger le reste du groupe.
+     */
+    public void envoyerAUtilisateur(
+            String groupeUuid, Long utilisateurId, String type, Object data) {
+        Set<WebSocketSession> sessions = sessionsParGroupe.get(groupeUuid);
+        if (sessions == null || sessions.isEmpty() || utilisateurId == null) return;
+
+        String json;
+        try {
+            json = objectMapper.writeValueAsString(Map.of("type", type, "data", data));
+        } catch (Exception e) {
+            log.error("Erreur sérialisation message WS: {}", e.getMessage());
+            return;
+        }
+
+        TextMessage message = new TextMessage(json);
+        for (WebSocketSession s : sessions) {
+            if (!utilisateurId.equals(s.getAttributes().get("utilisateurId"))) continue;
+            try {
+                if (s.isOpen()) s.sendMessage(message);
+            } catch (IOException e) {
+                log.warn("Échec envoi WS ciblé à une session (retirée) : {}", e.getMessage());
+                sessions.remove(s);
+            }
+        }
+    }
+
     private String attribut(WebSocketSession session, String cle) {
         Object v = session.getAttributes().get(cle);
         return v != null ? v.toString() : null;

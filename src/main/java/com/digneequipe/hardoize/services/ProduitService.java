@@ -77,6 +77,17 @@ public class ProduitService {
                 (List<Map<String, Object>>) body.get("unites");
         if (unitesBody != null) {
             uniteProduitRepo.deleteByProduitId(p.getId());
+            // BUG CORRIGÉ : sans ce flush, Hibernate exécute par
+            // défaut TOUS les INSERT en attente avant les DELETE (son
+            // ordre d'action fixe, indépendant de l'ordre d'appel en
+            // Java) — les nouvelles unités ci-dessous (mêmes uuid que
+            // les anciennes, réutilisés tels quels par l'appareil) se
+            // retrouvaient donc insérées AVANT que les anciennes
+            // lignes ne soient supprimées, d'où "duplicate key value
+            // violates unique constraint unites_produit_uuid_key" à
+            // chaque modification d'un produit existant. Le flush
+            // force la suppression à s'exécuter immédiatement.
+            uniteProduitRepo.flush();
             int ordre = 0;
             for (Map<String, Object> ub : unitesBody) {
                 UniteProduit u = UniteProduit.builder()
