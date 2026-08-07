@@ -56,7 +56,8 @@ public class MultiModeController {
                         "operationUuid", payload.getOrDefault("operationUuid", ""),
                         "auteur",        auth.getName(),
                         "data",          data,
-                        "resultat",      resultat
+                        "resultat",      resultat,
+                        "horodatageServeur", System.currentTimeMillis()
                 ));
             }
 

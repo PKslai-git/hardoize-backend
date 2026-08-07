@@ -46,7 +46,9 @@ public class ProduitService {
         }
         p.setStockMinimum(i(body, "stockMinimum") != null
                 ? i(body, "stockMinimum") : 5);
-        p.setPhotoUri(s(body, "photoUri"));
+        // photoUri : volontairement IGNORÉ ici. Chaque appareil choisit
+        // sa propre photo localement pour un même produit ; le serveur
+        // ne la stocke plus et ne la diffuse plus aux autres membres.
         p.setEstActif(true);
 
         // FK Groupe
@@ -129,7 +131,7 @@ public class ProduitService {
         dto.put("prixVente",     p.getPrixVente());
         dto.put("quantiteStock", p.getQuantiteStock());
         dto.put("stockMinimum",  p.getStockMinimum());
-        dto.put("photoUri",      p.getPhotoUri());
+        // photoUri : jamais renvoyé — purement local à chaque appareil.
         dto.put("createdAt",     p.getCreatedAt());
         dto.put("groupeUuid",    p.getGroupe() != null
                 ? p.getGroupe().getUuid() : null);

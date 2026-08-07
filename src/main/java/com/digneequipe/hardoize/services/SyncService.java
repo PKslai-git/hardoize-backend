@@ -219,7 +219,8 @@ public class SyncService {
                     p.setQuantiteStock(i(m,"quantiteStock") != null ? i(m,"quantiteStock") : 0);
                 }
                 p.setStockMinimum(i(m,"stockMinimum") != null ? i(m,"stockMinimum") : 5);
-                p.setPhotoUri(s(m,"photoUri"));
+                // photoUri : volontairement ignoré — voir ProduitService
+                // .creerOuMettreAJour pour la même règle en mode multi.
                 p.setUtilisateur(user);
                 p.setEstActif(true);
                 resolveGroupe(m, p, idMap);
