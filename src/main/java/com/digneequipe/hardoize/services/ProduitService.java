@@ -32,6 +32,35 @@ public class ProduitService {
 
         p.setNom(s(body, "nom"));
         p.setCategorie(s(body, "categorie"));
+        // Code-barres : optionnel, mais s'il est fourni, ne doit pas
+        // déjà être utilisé par un AUTRE produit actif du même groupe
+        // (deux articles physiques différents ne doivent jamais
+        // pointer vers la même fiche lors d'un scan).
+        String codeBarre = s(body, "codeBarre");
+        if (codeBarre != null && !codeBarre.isBlank()) {
+            Long groupeIdPourCheck = existant.isPresent() && existant.get().getGroupe() != null
+                    ? existant.get().getGroupe().getId() : null;
+            String gUuidBody = s(body, "groupeUuid");
+            if (groupeIdPourCheck == null && gUuidBody != null) {
+                groupeIdPourCheck = groupeRepo.findByUuid(gUuidBody)
+                        .map(Groupe::getId).orElse(null);
+            }
+            if (groupeIdPourCheck != null) {
+                produitRepo.findByCodeBarreAndGroupeIdAndEstActif(
+                        codeBarre, groupeIdPourCheck, true
+                ).ifPresent(autre -> {
+                    if (!autre.getUuid().equals(uuid)) {
+                        throw new RuntimeException(
+                                "Ce code-barres est déjà utilisé par \"" +
+                                autre.getNom() + "\"");
+                    }
+                });
+            }
+            p.setCodeBarre(codeBarre);
+        } else if (body.containsKey("codeBarre")) {
+            // Envoyé explicitement vide -> effacer un code existant
+            p.setCodeBarre(null);
+        }
         p.setPrixAchat(d(body, "prixAchat") != null
                 ? d(body, "prixAchat") : 0.0);
         p.setPrixVente(d(body, "prixVente") != null
@@ -138,6 +167,7 @@ public class ProduitService {
         dto.put("uuid",          p.getUuid());
         dto.put("nom",           p.getNom());
         dto.put("categorie",     p.getCategorie());
+        dto.put("codeBarre",     p.getCodeBarre());
         dto.put("prixAchat",     p.getPrixAchat());
         dto.put("prixVente",     p.getPrixVente());
         dto.put("quantiteStock", p.getQuantiteStock());

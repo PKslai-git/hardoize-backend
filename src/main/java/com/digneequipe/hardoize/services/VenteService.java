@@ -24,7 +24,7 @@ public class VenteService {
     private final GroupeRepository      groupeRepo;
     private final UtilisateurRepository utilisateurRepo;
     private final HistoriqueService     historiqueService;
-    private final MouvementStockRepository mouvementStockRepo;
+    private final MouvementStockRepository mouvementRepo;
 
     // ── Mode Solo : stocker sans vérification ─────────────────
     @Transactional
@@ -111,6 +111,7 @@ public class VenteService {
                 }
                 dtoExistant.put("lignes", lignesExistantes);
                 dtoExistant.put("stocksMisAJour", stocksExistants);
+                dtoExistant.put("mouvementsStock", new ArrayList<>());
                 dtoExistant.put("dejaTraitee", true);
                 return dtoExistant;
             }
@@ -156,7 +157,16 @@ public class VenteService {
 
         List<Map<String, Object>> lignesDto = new ArrayList<>();
         List<Map<String, Object>> stocksMisAJour = new ArrayList<>();
-        List<Map<String, Object>> mouvementsStockDto = new ArrayList<>();
+        // BUG CORRIGÉ : une vente ne créait jamais de ligne dans
+        // mouvements_stock — l'onglet "Mouvements" de StockScreen
+        // n'affichait donc jamais les sorties dues aux ventes, alors
+        // que le stock, lui, était bien décrémenté. Un mouvement de
+        // type "sortie" / motif "vente" est désormais journalisé pour
+        // CHAQUE ligne de la vente, exactement comme pour un achat/une
+        // perte/un retour — inclus dans le résultat (mouvementsStock)
+        // pour que tous les appareils l'appliquent en temps réel (voir
+        // appliquerResultatOperation côté frontend).
+        List<Map<String, Object>> mouvementsDto = new ArrayList<>();
 
         for (Map<String, Object> ligneBody : lignesTriees) {
             String pUuid = s(ligneBody, "produitUuid");
@@ -238,46 +248,35 @@ public class VenteService {
             stockDto.put("quantiteStock", produit.getQuantiteStock());
             stocksMisAJour.add(stockDto);
 
-            // BUG CORRIGÉ : une vente ne créait jamais de ligne dans
-            // mouvements_stock — l'onglet "Mouvements" de l'écran Stock
-            // n'affichait donc jamais les sorties liées aux ventes
-            // (seuls achat/perte/retour/inventaire, créés depuis cet
-            // écran, y apparaissaient). Même table, motif "vente".
-            MouvementStock mouvement = MouvementStock.builder()
+            MouvementStock mvt = MouvementStock.builder()
                     .uuid(UUID.randomUUID().toString())
                     .produit(produit)
                     .nomProduit(produit.getNom())
                     .type("sortie")
                     .motif("vente")
                     .quantite(qteBase)
-                    .NomUnite(s(ligneBody, "uniteNom") != null
-                            ? s(ligneBody, "uniteNom") : "pcs")
-                    .QteUnite(qteAffichee)
+                    .nomUtilisateur(user.getNom())
                     .prixUnitaire(prix)
                     .montantTotal(sousTotal)
                     .utilisateur(user)
-                    .nomUtilisateur(user.getNom())
                     .groupe(groupe)
                     .build();
-            mouvementStockRepo.save(mouvement);
-
+            mvt = mouvementRepo.save(mvt);
             Map<String, Object> mDto = new HashMap<>();
-            mDto.put("uuid",          mouvement.getUuid());
-            mDto.put("produitUuid",   produit.getUuid());
-            mDto.put("nomProduit",    produit.getNom());
-            mDto.put("type",          "sortie");
-            mDto.put("motif",         "vente");
-            mDto.put("quantite",      qteBase);
-            mDto.put("nomUnite",      mouvement.getNomUnite());
-            mDto.put("qteUnite",      qteAffichee);
-            mDto.put("prixUnitaire",  prix);
-            mDto.put("montantTotal",  sousTotal);
-            mDto.put("nomUtilisateur", user.getNom());
-            mDto.put("createdAt", mouvement.getCreatedAt() != null
-                    ? mouvement.getCreatedAt()
-                            .atZone(ZoneOffset.UTC).toInstant().toEpochMilli()
-                    : System.currentTimeMillis());
-            mouvementsStockDto.add(mDto);
+            mDto.put("uuid",           mvt.getUuid());
+            mDto.put("produitUuid",    produit.getUuid());
+            mDto.put("nomProduit",     produit.getNom());
+            mDto.put("type",           mvt.getType());
+            mDto.put("motif",          mvt.getMotif());
+            mDto.put("quantite",       mvt.getQuantite());
+            mDto.put("nomUnite",       s(ligneBody, "uniteNom") != null ? s(ligneBody, "uniteNom") : "pcs");
+            mDto.put("qteUnite",       qteAffichee);
+            mDto.put("prixUnitaire",   mvt.getPrixUnitaire());
+            mDto.put("montantTotal",   mvt.getMontantTotal());
+            mDto.put("nomUtilisateur", mvt.getNomUtilisateur());
+            mDto.put("groupeUuid",     groupe != null ? groupe.getUuid() : null);
+            mDto.put("createdAt",      mvt.getCreatedAt());
+            mouvementsDto.add(mDto);
 
             Map<String, Object> lDto = new HashMap<>();
             lDto.put("uuid",        ligne.getUuid());
@@ -364,7 +363,7 @@ public class VenteService {
         Map<String, Object> dto = buildDto(vente);
         dto.put("lignes", lignesDto);
         dto.put("stocksMisAJour", stocksMisAJour);
-        dto.put("mouvementsStock", mouvementsStockDto);
+        dto.put("mouvementsStock", mouvementsDto);
         if (historiqueDto != null) dto.put("historiqueVente", historiqueDto);
         if (detteCreee != null) {
             Map<String, Object> detteDto = new HashMap<>();

@@ -20,6 +20,13 @@ public class Produit extends BaseEntity {
 
     private String categorie;
 
+    // Code-barres du produit (EAN-13, UPC, Code128...) — saisi
+    // manuellement ou scanné à la caméra. Optionnel, mais quand présent
+    // doit être unique par groupe (contrainte gérée au niveau service,
+    // pas en base, pour rester tolérant aux anciens produits sans
+    // code-barres qui partagent tous une valeur nulle).
+    private String codeBarre;
+
     @Builder.Default private Double  prixAchat     = 0.0;
     @Column(nullable = false)
     private Double  prixVente;

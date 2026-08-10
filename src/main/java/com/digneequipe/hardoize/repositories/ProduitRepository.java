@@ -48,4 +48,11 @@ public interface ProduitRepository extends JpaRepository<Produit, Long> {
         Optional<Produit> findByUuidPourMiseAJour(@Param("uuid") String uuid);
 
         List<Produit> findByGroupeIdAndEstActif(Long groupeId, Boolean estActif);
+
+        // Recherche par code-barres, utilisée par le scan côté vente/stock —
+        // scopée au groupe car deux commerces différents peuvent, en théorie,
+        // avoir enregistré manuellement le même code (ex: produit sans EAN
+        // officiel, code interne).
+        Optional<Produit> findByCodeBarreAndGroupeIdAndEstActif(
+                String codeBarre, Long groupeId, Boolean estActif);
     }
