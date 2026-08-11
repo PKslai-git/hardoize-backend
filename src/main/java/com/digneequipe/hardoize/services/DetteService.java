@@ -148,6 +148,11 @@ public class DetteService {
         dto.put("statut",          d.getStatut());
         dto.put("clientUuid",      d.getClient() != null
                 ? d.getClient().getUuid() : null);
+        // Dénormalisé — voir le commentaire dans VenteService pour la
+        // raison (dette invisible côté app si clientId résout en NULL
+        // au moment de l'application locale du résultat).
+        dto.put("nomClient",       d.getClient() != null
+                ? d.getClient().getNomClient() : null);
         dto.put("venteUuid",       d.getVente() != null
                 ? d.getVente().getUuid() : null);
         dto.put("groupeUuid",      d.getGroupe() != null

@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -51,14 +52,25 @@ public class MultiModeController {
                 // appliquerResultatOperation côté frontend, qui prenait
                 // déjà les deux en argument pour son propre appel HTTP).
                 Object data = payload.getOrDefault("data", payload);
-                groupeWebSocketHandler.diffuser(gUuid, "operation", Map.of(
-                        "operationType", payload.get("type"),
-                        "operationUuid", payload.getOrDefault("operationUuid", ""),
-                        "auteur",        auth.getName(),
-                        "data",          data,
-                        "resultat",      resultat,
-                        "horodatageServeur", System.currentTimeMillis()
-                ));
+                // BUG CORRIGÉ : même piège Map.of que
+                // notifierMembreBailMisAJour (NullPointerException dès
+                // qu'une seule valeur est null) — ici sur LA DIFFUSION
+                // DE TOUTE OPÉRATION MULTI (vente, produit, dette...).
+                // Si jamais "resultat" ou payload.get("type") se
+                // retrouvait null, l'exception remontait jusqu'au catch
+                // englobant de cette méthode et renvoyait une ERREUR à
+                // l'auteur de l'opération — alors même que
+                // traiterOperation() avait déjà réussi et committé en
+                // base juste avant. L'utilisateur voyait donc échouer
+                // une action qui avait en réalité fonctionné.
+                Map<String, Object> messageDiffuse = new HashMap<>();
+                messageDiffuse.put("operationType", payload.get("type"));
+                messageDiffuse.put("operationUuid", payload.getOrDefault("operationUuid", ""));
+                messageDiffuse.put("auteur", auth.getName());
+                messageDiffuse.put("data", data);
+                messageDiffuse.put("resultat", resultat);
+                messageDiffuse.put("horodatageServeur", System.currentTimeMillis());
+                groupeWebSocketHandler.diffuser(gUuid, "operation", messageDiffuse);
             }
 
             return ResponseEntity.ok(ApiResponse.ok("Opération traitée", resultat));

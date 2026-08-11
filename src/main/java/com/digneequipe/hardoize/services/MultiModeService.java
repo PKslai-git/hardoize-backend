@@ -280,14 +280,26 @@ public class MultiModeService {
 
     private void notifierMembreBailMisAJour(MembreGroupe membre) {
         if (membre.getUtilisateur() == null || membre.getGroupe() == null) return;
+        // BUG CORRIGÉ : Map.of(...) lève une NullPointerException dès
+        // qu'UNE SEULE valeur passée est null — hors bailHeure peut
+        // très bien l'être (membre jamais eu de bail explicite, ou
+        // connexionPermanente déjà active). Cette exception éclatait
+        // alors EN PLEIN MILIEU de définirConnexionPermanente/
+        // prolongerBail, après la sauvegarde du membre mais avant la
+        // fin de la transaction — @Transactional annulait donc le
+        // changement (rollback) tout en renvoyant une erreur 400 au
+        // propriétaire, ET aucun message n'était jamais envoyé au
+        // membre concerné puisqu'on n'atteignait jamais l'appel à
+        // diffuser(). Remplacé par une HashMap, qui accepte les valeurs
+        // null sans broncher (le front gère déjà bailHeure=null, voir
+        // appliquerMajBail côté app).
+        Map<String, Object> message = new HashMap<>();
+        message.put("membreUuid", membre.getUuid());
+        message.put("bailHeure", membre.getBailHeure());
+        message.put("connexionPermanente", Boolean.TRUE.equals(membre.getConnexionPermanente()));
         groupeWebSocketHandler.envoyerAUtilisateur(
                 membre.getGroupe().getUuid(), membre.getUtilisateur().getId(),
-                "membre_bail_maj",
-                Map.of(
-                        "membreUuid", membre.getUuid(),
-                        "bailHeure", membre.getBailHeure(),
-                        "connexionPermanente", Boolean.TRUE.equals(membre.getConnexionPermanente())
-                ));
+                "membre_bail_maj", message);
     }
 
     // ── Déconnexion forcée par le propriétaire ─────────────────
