@@ -23,15 +23,27 @@ public class ClientService {
         String uuid = s(body, "uuid");
         if (uuid == null) throw new RuntimeException("UUID obligatoire");
 
-        Client c = clientRepo.findByUuid(uuid)
-                .orElse(Client.builder().uuid(uuid).build());
+        Optional<Client> existant = clientRepo.findByUuid(uuid);
+        boolean estNouveau = existant.isEmpty();
+        Client c = existant.orElse(Client.builder().uuid(uuid).build());
 
         c.setNomClient(s(body, "nomClient"));
         c.setNumeroClient(s(body, "numeroClient"));
         c.setEmail(s(body, "email"));
         c.setPhotoUri(s(body, "photoUri"));
-        c.setScore(i(body, "score") != null ? i(body, "score") : 100);
-        c.setEstActif(true);
+        // BUG CORRIGÉ : "score" retombait à 100 et "estActif" à true à
+        // CHAQUE sauvegarde, y compris une simple modification du nom —
+        // un client dont le score avait évolué le voyait donc réinitialisé
+        // à chaque modification, et il était impossible de le désactiver
+        // via cette méthode (toujours réactivé juste après).
+        if (estNouveau) {
+            c.setScore(i(body, "score") != null ? i(body, "score") : 100);
+            c.setEstActif(true);
+        } else {
+            if (body.get("score") != null) c.setScore(i(body, "score"));
+            if (body.get("estActif") != null)
+                c.setEstActif(Boolean.TRUE.equals(body.get("estActif")));
+        }
 
         String gUuid = s(body, "groupeUuid");
         if (gUuid != null)
@@ -61,6 +73,7 @@ public class ClientService {
         dto.put("numeroClient", c.getNumeroClient());
         dto.put("email",        c.getEmail());
         dto.put("score",        c.getScore());
+        dto.put("estActif",     c.getEstActif());
         dto.put("groupeUuid",   c.getGroupe() != null
                 ? c.getGroupe().getUuid() : null);
         dto.put("createdAt",    c.getCreatedAt());

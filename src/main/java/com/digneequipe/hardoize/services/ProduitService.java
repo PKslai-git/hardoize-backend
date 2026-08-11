@@ -78,7 +78,17 @@ public class ProduitService {
         // photoUri : volontairement IGNORÉ ici. Chaque appareil choisit
         // sa propre photo localement pour un même produit ; le serveur
         // ne la stocke plus et ne la diffuse plus aux autres membres.
-        p.setEstActif(true);
+        // BUG CORRIGÉ : "true" était forcé ICI inconditionnellement, à
+        // CHAQUE sauvegarde (création ET modification) — impossible de
+        // jamais désactiver un produit via cette méthode, quoi que le
+        // frontend envoie. Un nouveau produit est toujours actif ; un
+        // produit existant respecte désormais estActif si fourni,
+        // sinon reste inchangé.
+        if (estNouveau) {
+            p.setEstActif(true);
+        } else if (body.get("estActif") != null) {
+            p.setEstActif(Boolean.TRUE.equals(body.get("estActif")));
+        }
 
         // FK Groupe
         String gUuid = s(body, "groupeUuid");
@@ -168,6 +178,7 @@ public class ProduitService {
         dto.put("nom",           p.getNom());
         dto.put("categorie",     p.getCategorie());
         dto.put("codeBarre",     p.getCodeBarre());
+        dto.put("estActif",      p.getEstActif());
         dto.put("prixAchat",     p.getPrixAchat());
         dto.put("prixVente",     p.getPrixVente());
         dto.put("quantiteStock", p.getQuantiteStock());
