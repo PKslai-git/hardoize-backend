@@ -117,7 +117,12 @@ public class MultiModeService {
                 if (detteUuid == null)
                     throw new RuntimeException("uuid de la dette manquant");
                 double montant = d(data, "montant") != null ? d(data, "montant") : 0.0;
-                yield detteService.rembourser(detteUuid, montant);
+                // opérationUuid transmis comme identifiant du paiement
+                // généré : évite tout risque de désaccord de format
+                // entre la concaténation Java (montant en Double) et la
+                // reconstitution JS côté app pour la même clé.
+                String operationUuid = s(payload, "operationUuid");
+                yield detteService.rembourser(detteUuid, montant, telephone, operationUuid);
             }
             case "dette_fournisseur_remboursement" -> {
                 @SuppressWarnings("unchecked")
@@ -128,7 +133,8 @@ public class MultiModeService {
                 if (detteUuid == null)
                     throw new RuntimeException("uuid de la dette fournisseur manquant");
                 double montant = d(data, "montant") != null ? d(data, "montant") : 0.0;
-                yield detteFournisseurService.rembourser(detteUuid, montant);
+                String operationUuid = s(payload, "operationUuid");
+                yield detteFournisseurService.rembourser(detteUuid, montant, telephone, operationUuid);
             }
             default -> throw new RuntimeException(
                     "Type d'opération non supporté: " + type);

@@ -19,6 +19,8 @@ public class DetteService {
     private final ClientRepository  clientRepo;
     private final VenteRepository   venteRepo;
     private final GroupeRepository  groupeRepo;
+    private final UtilisateurRepository utilisateurRepo;
+    private final HistoriqueService historiqueService;
 
     @Transactional
     public Map<String, Object> creerOuMaj(Map<String, Object> body) {
@@ -82,7 +84,7 @@ public class DetteService {
     }
 
     @Transactional
-    public Map<String, Object> rembourser(String uuid, double montant) {
+    public Map<String, Object> rembourser(String uuid, double montant, String telephone, String operationUuid) {
         Dette d = detteRepo.findByUuid(uuid)
                 .orElseThrow(() -> new RuntimeException("Dette introuvable"));
 
@@ -95,7 +97,45 @@ public class DetteService {
         }
 
         d = detteRepo.save(d);
-        return buildDto(d);
+
+        // Historique paiement — manquait entièrement ici jusqu'ici :
+        // rembourser() ne touchait que la Dette elle-même, aucune ligne
+        // n'était jamais créée dans historique_paiements côté serveur
+        // (seule une insertion locale ad-hoc existait côté app, sujette
+        // au bug de dédoublonnage WebSocket corrigé par ailleurs). Le
+        // nom de l'auteur est résolu par téléphone, comme pour
+        // MouvementStock.nomUtilisateur. L'uuid du paiement réutilise
+        // l'operationUuid de CETTE opération (unique par appel, déjà
+        // plombé de bout en bout depuis le correctif websocketManager)
+        // plutôt qu'une clé recomposée à partir du montant — évite tout
+        // risque de désaccord de format entre Java et JS pour la même
+        // valeur, qui aurait pu dupliquer la ligne lors d'un rattrapage
+        // de reconnexion.
+        String nomAuteur = utilisateurRepo.findByTelephone(telephone)
+                .map(Utilisateur::getNom).orElse(null);
+        if (montant > 0) {
+            Map<String, Object> paiementBody = new HashMap<>();
+            paiementBody.put("uuid",
+                    operationUuid != null ? operationUuid
+                            : "remb-client-" + uuid + "-" + d.getMontantRembourse());
+            paiementBody.put("type", "client");
+            paiementBody.put("sens", "entrant");
+            paiementBody.put("montant", montant);
+            paiementBody.put("description",
+                    "Remboursement dette — " + (d.getClient() != null ? d.getClient().getNomClient() : ""));
+            paiementBody.put("nomClient",
+                    d.getClient() != null ? d.getClient().getNomClient() : null);
+            paiementBody.put("nomUtilisateur", nomAuteur);
+            paiementBody.put("clientUuid",
+                    d.getClient() != null ? d.getClient().getUuid() : null);
+            paiementBody.put("groupeUuid",
+                    d.getGroupe() != null ? d.getGroupe().getUuid() : null);
+            historiqueService.enregistrerPaiement(paiementBody);
+        }
+
+        Map<String, Object> dto = buildDto(d);
+        dto.put("nomUtilisateur", nomAuteur);
+        return dto;
     }
 
     private Map<String, Object> buildDto(Dette d) {

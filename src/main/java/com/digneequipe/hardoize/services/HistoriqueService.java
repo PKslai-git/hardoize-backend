@@ -119,6 +119,7 @@ public class HistoriqueService {
                 .description(s(body, "description"))
                 .nomClient(s(body, "nomClient"))
                 .nomFournisseur(s(body, "nomFournisseur"))
+                .nomUtilisateur(s(body, "nomUtilisateur"))
                 .build();
 
         String gUuid = s(body, "groupeUuid");
@@ -174,6 +175,7 @@ public class HistoriqueService {
         dto.put("description",   p.getDescription());
         dto.put("nomClient",     p.getNomClient());
         dto.put("nomFournisseur",p.getNomFournisseur());
+        dto.put("nomUtilisateur",p.getNomUtilisateur());
         dto.put("groupeUuid",    p.getGroupe() != null
                 ? p.getGroupe().getUuid() : null);
         dto.put("createdAt",     p.getCreatedAt());

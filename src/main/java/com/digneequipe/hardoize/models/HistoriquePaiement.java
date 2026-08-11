@@ -22,6 +22,12 @@ public class HistoriquePaiement extends BaseEntity {
     private String nomClient;
     private String nomFournisseur;
 
+    // Nom du membre ayant effectué l'opération (dénormalisé, même
+    // principe que MouvementStock.nomUtilisateur) — garantit un
+    // affichage identique sur tous les appareils du groupe une fois
+    // synchronisé, sans jointure côté client.
+    private String nomUtilisateur;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "client_id")
     @JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
