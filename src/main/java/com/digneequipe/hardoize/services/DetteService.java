@@ -20,7 +20,7 @@ public class DetteService {
     private final VenteRepository   venteRepo;
     private final GroupeRepository  groupeRepo;
     private final UtilisateurRepository utilisateurRepo;
-    private final HistoriquePaiementRepository historiquePaiementRepo;
+    private final HistoriqueService historiqueService;
 
     @Transactional
     public Map<String, Object> creerOuMaj(Map<String, Object> body) {
@@ -84,7 +84,7 @@ public class DetteService {
     }
 
     @Transactional
-    public Map<String, Object> rembourser(String uuid, double montant, String telephoneAuteur) {
+    public Map<String, Object> rembourser(String uuid, double montant, String telephone, String operationUuid) {
         Dette d = detteRepo.findByUuid(uuid)
                 .orElseThrow(() -> new RuntimeException("Dette introuvable"));
 
@@ -97,55 +97,44 @@ public class DetteService {
         }
 
         d = detteRepo.save(d);
-        Map<String, Object> dto = buildDto(d);
 
-        // BUG CORRIGÉ : le bonus de score (+10) à la clôture d'une
-        // dette était géré CÔTÉ CLIENT via ClientDB.incrementerScore,
-        // appelé SANS CONDITION même en mode multi — une écriture
-        // locale directe qui (comme pour toggleActivation) posait
-        // syncEnAttente=1 sur ce client, sur CET appareil, pour
-        // toujours : plus aucune future mise à jour serveur de ce
-        // client n'était alors appliquée localement, ni la
-        // synchronisation du score vers les autres membres. Le bonus
-        // est désormais calculé ici, seule source de vérité, et
-        // renvoyé pour que chaque appareil applique la même valeur.
-        if ("soldee".equals(d.getStatut()) && d.getClient() != null) {
-            Client c = d.getClient();
-            int nouveauScore = Math.min(100, (c.getScore() != null ? c.getScore() : 100) + 10);
-            c.setScore(nouveauScore);
-            clientRepo.save(c);
-            dto.put("clientScore", nouveauScore);
+        // Historique paiement — manquait entièrement ici jusqu'ici :
+        // rembourser() ne touchait que la Dette elle-même, aucune ligne
+        // n'était jamais créée dans historique_paiements côté serveur
+        // (seule une insertion locale ad-hoc existait côté app, sujette
+        // au bug de dédoublonnage WebSocket corrigé par ailleurs). Le
+        // nom de l'auteur est résolu par téléphone, comme pour
+        // MouvementStock.nomUtilisateur. L'uuid du paiement réutilise
+        // l'operationUuid de CETTE opération (unique par appel, déjà
+        // plombé de bout en bout depuis le correctif websocketManager)
+        // plutôt qu'une clé recomposée à partir du montant — évite tout
+        // risque de désaccord de format entre Java et JS pour la même
+        // valeur, qui aurait pu dupliquer la ligne lors d'un rattrapage
+        // de reconnexion.
+        String nomAuteur = utilisateurRepo.findByTelephone(telephone)
+                .map(Utilisateur::getNom).orElse(null);
+        if (montant > 0) {
+            Map<String, Object> paiementBody = new HashMap<>();
+            paiementBody.put("uuid",
+                    operationUuid != null ? operationUuid
+                            : "remb-client-" + uuid + "-" + d.getMontantRembourse());
+            paiementBody.put("type", "client");
+            paiementBody.put("sens", "entrant");
+            paiementBody.put("montant", montant);
+            paiementBody.put("description",
+                    "Remboursement dette — " + (d.getClient() != null ? d.getClient().getNomClient() : ""));
+            paiementBody.put("nomClient",
+                    d.getClient() != null ? d.getClient().getNomClient() : null);
+            paiementBody.put("nomUtilisateur", nomAuteur);
+            paiementBody.put("clientUuid",
+                    d.getClient() != null ? d.getClient().getUuid() : null);
+            paiementBody.put("groupeUuid",
+                    d.getGroupe() != null ? d.getGroupe().getUuid() : null);
+            historiqueService.enregistrerPaiement(paiementBody);
         }
 
-        // BUG CORRIGÉ : cette méthode ne persistait JAMAIS de ligne
-        // d'historique de paiement côté serveur — seule l'écriture
-        // locale faite par chaque appareil au moment de l'écho
-        // WebSocket existait. Un appareil hors ligne ou déconnecté
-        // pile à ce moment-là ne recevait donc CE paiement précis
-        // NULLE PART, y compris lors d'une resynchronisation complète
-        // ultérieure (puisque le serveur n'avait rien à renvoyer). Le
-        // paiement est désormais la source de vérité côté serveur, et
-        // son uuid réel est renvoyé pour que le frontend s'en serve
-        // (au lieu de fabriquer sa propre clé de déduplication).
-        String nomAuteur = utilisateurRepo.findByTelephone(telephoneAuteur)
-                .map(Utilisateur::getNom).orElse(null);
-
-        HistoriquePaiement hp = HistoriquePaiement.builder()
-                .type("client")
-                .sens("entrant")
-                .montant(montant)
-                .description("Remboursement dette — " +
-                        (d.getClient() != null ? d.getClient().getNomClient() : ""))
-                .nomClient(d.getClient() != null ? d.getClient().getNomClient() : null)
-                .client(d.getClient())
-                .dette(d)
-                .groupe(d.getGroupe())
-                .nomUtilisateur(nomAuteur)
-                .build();
-        hp = historiquePaiementRepo.save(hp);
-
+        Map<String, Object> dto = buildDto(d);
         dto.put("nomUtilisateur", nomAuteur);
-        dto.put("historiquePaiementUuid", hp.getUuid());
         return dto;
     }
 

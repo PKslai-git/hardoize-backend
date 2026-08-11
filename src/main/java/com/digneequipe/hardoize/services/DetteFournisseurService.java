@@ -17,7 +17,7 @@ public class DetteFournisseurService {
     private final FournisseurRepository      fournisseurRepo;
     private final GroupeRepository           groupeRepo;
     private final UtilisateurRepository      utilisateurRepo;
-    private final HistoriquePaiementRepository historiquePaiementRepo;
+    private final HistoriqueService          historiqueService;
 
     @Transactional
     public Map<String, Object> creerOuMaj(Map<String, Object> body) {
@@ -72,7 +72,7 @@ public class DetteFournisseurService {
     }
 
     @Transactional
-    public Map<String, Object> rembourser(String uuid, double montant, String telephoneAuteur) {
+    public Map<String, Object> rembourser(String uuid, double montant, String telephone, String operationUuid) {
         DetteFournisseur df = detteFournRepo.findByUuid(uuid)
                 .orElseThrow(() ->
                         new RuntimeException("Dette fournisseur introuvable"));
@@ -84,28 +84,34 @@ public class DetteFournisseurService {
             df.setStatut("soldee");
         }
         df = detteFournRepo.save(df);
-        Map<String, Object> dto = buildDto(df);
 
-        // BUG CORRIGÉ : même cause que côté client — aucune ligne
-        // d'historique n'était persistée côté serveur.
-        String nomAuteur = utilisateurRepo.findByTelephone(telephoneAuteur)
+        // Historique paiement — même correctif que DetteService.rembourser :
+        // aucune ligne n'était jamais créée côté serveur pour un
+        // remboursement fournisseur.
+        String nomAuteur = utilisateurRepo.findByTelephone(telephone)
                 .map(Utilisateur::getNom).orElse(null);
+        if (montant > 0) {
+            Map<String, Object> paiementBody = new HashMap<>();
+            paiementBody.put("uuid",
+                    operationUuid != null ? operationUuid
+                            : "remb-fourn-" + uuid + "-" + df.getMontantRembourse());
+            paiementBody.put("type", "fournisseur");
+            paiementBody.put("sens", "sortant");
+            paiementBody.put("montant", montant);
+            paiementBody.put("description",
+                    "Remboursement fournisseur — " + (df.getFournisseur() != null ? df.getFournisseur().getNom() : df.getNomFournisseur()));
+            paiementBody.put("nomFournisseur",
+                    df.getFournisseur() != null ? df.getFournisseur().getNom() : df.getNomFournisseur());
+            paiementBody.put("nomUtilisateur", nomAuteur);
+            paiementBody.put("fournisseurUuid",
+                    df.getFournisseur() != null ? df.getFournisseur().getUuid() : null);
+            paiementBody.put("groupeUuid",
+                    df.getGroupe() != null ? df.getGroupe().getUuid() : null);
+            historiqueService.enregistrerPaiement(paiementBody);
+        }
 
-        HistoriquePaiement hp = HistoriquePaiement.builder()
-                .type("fournisseur")
-                .sens("sortant")
-                .montant(montant)
-                .description("Remboursement fournisseur — " +
-                        (df.getNomFournisseur() != null ? df.getNomFournisseur() : ""))
-                .nomFournisseur(df.getNomFournisseur())
-                .fournisseur(df.getFournisseur())
-                .groupe(df.getGroupe())
-                .nomUtilisateur(nomAuteur)
-                .build();
-        hp = historiquePaiementRepo.save(hp);
-
+        Map<String, Object> dto = buildDto(df);
         dto.put("nomUtilisateur", nomAuteur);
-        dto.put("historiquePaiementUuid", hp.getUuid());
         return dto;
     }
 

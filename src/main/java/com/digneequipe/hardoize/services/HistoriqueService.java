@@ -119,6 +119,7 @@ public class HistoriqueService {
                 .description(s(body, "description"))
                 .nomClient(s(body, "nomClient"))
                 .nomFournisseur(s(body, "nomFournisseur"))
+                .nomUtilisateur(s(body, "nomUtilisateur"))
                 .build();
 
         String gUuid = s(body, "groupeUuid");
