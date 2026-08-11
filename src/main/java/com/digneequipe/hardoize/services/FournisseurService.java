@@ -23,15 +23,23 @@ public class FournisseurService {
         String uuid = s(body, "uuid");
         if (uuid == null) throw new RuntimeException("UUID obligatoire");
 
-        Fournisseur f = fournisseurRepo.findByUuid(uuid)
-                .orElse(Fournisseur.builder().uuid(uuid).build());
+        Optional<Fournisseur> existant = fournisseurRepo.findByUuid(uuid);
+        boolean estNouveau = existant.isEmpty();
+        Fournisseur f = existant.orElse(Fournisseur.builder().uuid(uuid).build());
 
         f.setNom(s(body, "nom"));
         f.setTelephone(s(body, "telephone"));
         f.setEmail(s(body, "email"));
         f.setAdresse(s(body, "adresse"));
         f.setPhotoUri(s(body, "photoUri"));
-        f.setEstActif(true);
+        // BUG CORRIGÉ : "true" forcé à CHAQUE sauvegarde — jamais
+        // possible de désactiver un fournisseur via cette méthode
+        // (immédiatement réactivé à la moindre modification suivante).
+        if (estNouveau) {
+            f.setEstActif(true);
+        } else if (body.get("estActif") != null) {
+            f.setEstActif(Boolean.TRUE.equals(body.get("estActif")));
+        }
 
         String gUuid = s(body, "groupeUuid");
         if (gUuid != null)
@@ -103,6 +111,7 @@ public class FournisseurService {
         dto.put("telephone",  f.getTelephone());
         dto.put("email",      f.getEmail());
         dto.put("adresse",    f.getAdresse());
+        dto.put("estActif",   f.getEstActif());
         dto.put("groupeUuid", f.getGroupe() != null
                 ? f.getGroupe().getUuid() : null);
         dto.put("createdAt",  f.getCreatedAt());

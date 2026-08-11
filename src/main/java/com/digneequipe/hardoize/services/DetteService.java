@@ -98,6 +98,19 @@ public class DetteService {
 
         d = detteRepo.save(d);
 
+        // Bonus de score client (+10, plafonné à 100) à la clôture
+        // complète d'une dette — recalculé ici, seule source de
+        // vérité, et renvoyé pour que chaque appareil applique la
+        // même valeur (jamais via une écriture locale directe côté
+        // app, qui posait syncEnAttente=1 sur ce client pour toujours
+        // sur l'appareil qui l'exécutait).
+        if ("soldee".equals(d.getStatut()) && d.getClient() != null) {
+            Client c = d.getClient();
+            int nouveauScore = Math.min(100, (c.getScore() != null ? c.getScore() : 100) + 10);
+            c.setScore(nouveauScore);
+            clientRepo.save(c);
+        }
+
         // Historique paiement — manquait entièrement ici jusqu'ici :
         // rembourser() ne touchait que la Dette elle-même, aucune ligne
         // n'était jamais créée dans historique_paiements côté serveur
@@ -135,6 +148,9 @@ public class DetteService {
 
         Map<String, Object> dto = buildDto(d);
         dto.put("nomUtilisateur", nomAuteur);
+        if ("soldee".equals(d.getStatut()) && d.getClient() != null) {
+            dto.put("clientScore", d.getClient().getScore());
+        }
         return dto;
     }
 

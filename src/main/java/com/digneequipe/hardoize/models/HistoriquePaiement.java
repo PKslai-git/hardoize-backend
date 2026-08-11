@@ -21,11 +21,9 @@ public class HistoriquePaiement extends BaseEntity {
     private String description;
     private String nomClient;
     private String nomFournisseur;
-
-    // Nom du membre ayant effectué l'opération (dénormalisé, même
-    // principe que MouvementStock.nomUtilisateur) — garantit un
-    // affichage identique sur tous les appareils du groupe une fois
-    // synchronisé, sans jointure côté client.
+    // Nom du membre ayant effectué le paiement/remboursement — DEMANDE :
+    // afficher qui a fait quoi, comme pour mouvements_stock. Nullable
+    // pour les anciennes lignes déjà en base avant l'ajout du champ.
     private String nomUtilisateur;
 
     @ManyToOne(fetch = FetchType.LAZY)

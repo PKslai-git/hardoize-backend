@@ -29,6 +29,23 @@ public class GroupeService {
                 .findByTelephone(telephone)
                 .orElseThrow(() -> new RuntimeException("Utilisateur introuvable"));
 
+        // BUG CORRIGÉ / DEMANDE : cette vérification ("l'utilisateur
+        // possède-t-il déjà un groupe ?") doit se faire ICI, côté
+        // serveur — source de vérité unique — et non plus seulement
+        // en local sur l'appareil (qui pouvait être désynchronisé,
+        // vidé, ou tout simplement absent de toute vérification côté
+        // client). Un utilisateur ne peut posséder qu'un seul groupe
+        // actif à la fois.
+        boolean possedeDejaUnGroupe = groupeRepo
+                .findByProprietaireId(proprietaire.getId())
+                .stream()
+                .anyMatch(Groupe::getEstActif);
+        if (possedeDejaUnGroupe) {
+            throw new RuntimeException(
+                    "Vous possédez déjà un groupe / point de vente. " +
+                    "Un seul groupe par propriétaire est autorisé pour le moment.");
+        }
+
         Groupe groupe = Groupe.builder()
                 .uuid(body.get("uuid") != null
                         ? body.get("uuid").toString()

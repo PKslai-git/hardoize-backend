@@ -373,13 +373,6 @@ public class VenteService {
             detteDto.put("montantRestant",     detteCreee.getMontantRestant());
             detteDto.put("statut",             detteCreee.getStatut());
             detteDto.put("clientUuid",         client.getUuid());
-            // Dénormalisé, comme nomFournisseur sur dettes_fournisseurs :
-            // sans ça, si le client n'est pas encore présent localement
-            // chez un autre membre au moment où l'écho de cette vente
-            // arrive (ex: client tout juste créé dans la même vente),
-            // la dette s'insérait avec clientId NULL et devenait
-            // invisible en permanence (INNER JOIN côté app).
-            detteDto.put("nomClient",          client.getNomClient());
             detteDto.put("venteUuid",          vente.getUuid());
             detteDto.put("groupeUuid",         groupe.getUuid());
             detteDto.put("dateRemboursement",  detteCreee.getDateRemboursement());

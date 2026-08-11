@@ -117,12 +117,13 @@ public class MultiModeService {
                 if (detteUuid == null)
                     throw new RuntimeException("uuid de la dette manquant");
                 double montant = d(data, "montant") != null ? d(data, "montant") : 0.0;
-                // opérationUuid transmis comme identifiant du paiement
-                // généré : évite tout risque de désaccord de format
-                // entre la concaténation Java (montant en Double) et la
-                // reconstitution JS côté app pour la même clé.
-                String operationUuid = s(payload, "operationUuid");
-                yield detteService.rembourser(detteUuid, montant, telephone, operationUuid);
+                // BUG CORRIGÉ (compilation) : rembourser() a maintenant
+                // besoin de l'operationUuid de CET appel — déjà présent
+                // au niveau racine du payload (voir MultiModeController),
+                // pour que la ligne d'historique créée serveur porte le
+                // même uuid que celui déjà utilisé pour le dédoublonnage
+                // WebSocket côté app.
+                yield detteService.rembourser(detteUuid, montant, telephone, s(payload, "operationUuid"));
             }
             case "dette_fournisseur_remboursement" -> {
                 @SuppressWarnings("unchecked")
@@ -133,8 +134,7 @@ public class MultiModeService {
                 if (detteUuid == null)
                     throw new RuntimeException("uuid de la dette fournisseur manquant");
                 double montant = d(data, "montant") != null ? d(data, "montant") : 0.0;
-                String operationUuid = s(payload, "operationUuid");
-                yield detteFournisseurService.rembourser(detteUuid, montant, telephone, operationUuid);
+                yield detteFournisseurService.rembourser(detteUuid, montant, telephone, s(payload, "operationUuid"));
             }
             default -> throw new RuntimeException(
                     "Type d'opération non supporté: " + type);
@@ -280,26 +280,14 @@ public class MultiModeService {
 
     private void notifierMembreBailMisAJour(MembreGroupe membre) {
         if (membre.getUtilisateur() == null || membre.getGroupe() == null) return;
-        // BUG CORRIGÉ : Map.of(...) lève une NullPointerException dès
-        // qu'UNE SEULE valeur passée est null — hors bailHeure peut
-        // très bien l'être (membre jamais eu de bail explicite, ou
-        // connexionPermanente déjà active). Cette exception éclatait
-        // alors EN PLEIN MILIEU de définirConnexionPermanente/
-        // prolongerBail, après la sauvegarde du membre mais avant la
-        // fin de la transaction — @Transactional annulait donc le
-        // changement (rollback) tout en renvoyant une erreur 400 au
-        // propriétaire, ET aucun message n'était jamais envoyé au
-        // membre concerné puisqu'on n'atteignait jamais l'appel à
-        // diffuser(). Remplacé par une HashMap, qui accepte les valeurs
-        // null sans broncher (le front gère déjà bailHeure=null, voir
-        // appliquerMajBail côté app).
-        Map<String, Object> message = new HashMap<>();
-        message.put("membreUuid", membre.getUuid());
-        message.put("bailHeure", membre.getBailHeure());
-        message.put("connexionPermanente", Boolean.TRUE.equals(membre.getConnexionPermanente()));
         groupeWebSocketHandler.envoyerAUtilisateur(
                 membre.getGroupe().getUuid(), membre.getUtilisateur().getId(),
-                "membre_bail_maj", message);
+                "membre_bail_maj",
+                Map.of(
+                        "membreUuid", membre.getUuid(),
+                        "bailHeure", membre.getBailHeure(),
+                        "connexionPermanente", Boolean.TRUE.equals(membre.getConnexionPermanente())
+                ));
     }
 
     // ── Déconnexion forcée par le propriétaire ─────────────────

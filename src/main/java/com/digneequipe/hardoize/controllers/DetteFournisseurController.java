@@ -4,6 +4,7 @@ import com.digneequipe.hardoize.dto.response.ApiResponse;
 import com.digneequipe.hardoize.services.DetteFournisseurService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
@@ -46,13 +47,16 @@ public class DetteFournisseurController {
     @PatchMapping("/{uuid}/rembourser")
     public ResponseEntity<ApiResponse<Map<String,Object>>> rembourser(
             @PathVariable String uuid,
-            @RequestBody Map<String,Object> body) {
+            @RequestBody Map<String,Object> body,
+            Authentication auth) {
         try {
             double montant = Double.parseDouble(
                     body.get("montant").toString());
+            String operationUuid = body.get("operationUuid") != null
+                    ? body.get("operationUuid").toString() : null;
             return ResponseEntity.ok(ApiResponse.ok(
                     "Remboursement enregistré",
-                    service.rembourser(uuid, montant)
+                    service.rembourser(uuid, montant, auth.getName(), operationUuid)
             ));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.error(e.getMessage()));
